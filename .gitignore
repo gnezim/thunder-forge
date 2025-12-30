@@ -5,6 +5,7 @@ tf.yml
 artifacts/
 
 # Python
+.coverage
 .venv/
 __pycache__/
 *.pyc

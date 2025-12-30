@@ -1,0 +1,77 @@
+# Example Thunder Forge config
+# - Copy to tf.yml and fill in real values locally.
+# - Use `TF_CONFIG_PATH=...` to point at a different file.
+
+server:
+  bind: 127.0.0.1
+  port: 8443
+  reload: true
+
+telegram:
+  # Used to verify Telegram Mini App initData
+  bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
+
+access:
+  # Telegram user IDs allowed to use the Mini App API (RESTRICT)
+  admin_telegram_ids:
+    - 123456789
+
+# What the bot prints on /start
+mini_app_url: http://127.0.0.1:8000/mini-app/
+
+settings:
+  ssh:
+    connect_timeout_seconds: 1.0
+    batch_mode: true
+  monitor:
+    ssh_port: 22
+    ollama_port: 11434
+  hosts_sync:
+    managed_block_start: "# BEGIN thunder-forge"
+    managed_block_end: "# END thunder-forge"
+
+nodes:
+  defaults:
+    ssh_user: admin
+    service_manager: brew
+  items:
+    - name: msm1
+      mgmt_ip: 192.168.1.101
+    - name: msm2
+      mgmt_ip: 192.168.1.102
+    - name: msm3
+      mgmt_ip: 192.168.1.103
+    - name: msm4
+      mgmt_ip: 192.168.1.104
+
+fabricnet:
+  # macOS network service name (exactly as shown by):
+  #   networksetup -listallnetworkservices
+  service_name: "EXO Thunderbolt 4"
+
+  # Exo-compatible Thunderbolt fabric networking
+  # - exo identifies Thunderbolt links by 169.254/16 (link-local)
+  # - configure hub + nodes in Manual mode:
+  #   macOS System Settings -> Network -> (EXO Thunderbolt N) -> TCP/IP -> Configure IPv4: "Manually"
+  # - Supported macOS for automation: Tahoe 26.2+ only
+  ipv4_mode: manual
+
+  # For 169.254/16 link-local, use netmask 255.255.0.0.
+  # Router can be empty (script will use 0.0.0.0).
+  ipv4_defaults:
+    netmask: 255.255.0.0
+    router: ""
+
+  # Per-node fabric IPs (used for connectivity checks and /etc/hosts entries).
+  # The hosts tooling will create stable names:
+  # - <name>-mgmt   -> management IP
+  # - <name>-fabric -> fabric IP
+  nodes:
+    - name: msm1
+      address: 169.254.10.1
+    - name: msm2
+      address: 169.254.10.2
+    - name: msm3
+      address: 169.254.10.3
+    - name: msm4
+      address: 169.254.10.4

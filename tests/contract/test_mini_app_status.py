@@ -22,8 +22,12 @@ def _make_init_data(*, bot_token: str, user_id: int) -> str:
         "user": json.dumps(user, separators=(",", ":")),
     }
     data_check_string = "\n".join(f"{k}={data[k]}" for k in sorted(data.keys()))
-    secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
-    sig = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+    secret_key = hmac.new(
+        b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256
+    ).digest()
+    sig = hmac.new(
+        secret_key, data_check_string.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
     payload = dict(data)
     payload["hash"] = sig
     return urlencode(payload)
@@ -34,7 +38,9 @@ def client():
     return TestClient(app)
 
 
-def test_status_contract(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, client: TestClient):
+def test_status_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, client: TestClient
+):
     cfg = tmp_path / "tf.yml"
     cfg.write_text(
         """
@@ -57,13 +63,21 @@ settings:
     managed_block_end: '# END thunder-forge'
 
 nodes:
-  - name: node1
+  defaults:
     ssh_user: u
-    wifi_ip: 127.0.0.1
-    tb_ip: 127.0.0.1
     service_manager: brew
-    ollama_service: ollama
-    models: []
+  items:
+    - name: node1
+      mgmt_ip: 127.0.0.1
+
+fabricnet:
+  service_name: "Thunderbolt Bridge"
+  ipv4_defaults:
+    netmask: 255.255.255.252
+    router: ""
+  nodes:
+    - name: node1
+      address: 127.0.0.1
 """.lstrip(),
         encoding="utf-8",
     )
@@ -72,12 +86,14 @@ nodes:
     load_config.cache_clear()
 
     init_data = _make_init_data(bot_token="test-token", user_id=123)
-    res = client.post("/api/mini-app/status", headers={"Authorization": "tma " + init_data})
+    res = client.post(
+        "/api/mini-app/status", headers={"Authorization": "tma " + init_data}
+    )
 
     assert res.status_code == 200
     body = res.json()
     assert "ts" in body
     assert isinstance(body["nodes"], list)
     assert body["nodes"][0]["name"] == "node1"
-    assert "wifi" in body["nodes"][0]
-    assert "thunderbolt" in body["nodes"][0]
+    assert "mgmt" in body["nodes"][0]
+    assert "fabric" in body["nodes"][0]

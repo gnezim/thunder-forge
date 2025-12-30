@@ -25,7 +25,9 @@ app.add_middleware(
 
 STATIC_DIR = (Path(__file__).resolve().parents[1] / "static" / "mini_app").resolve()
 if STATIC_DIR.exists():
-    app.mount("/mini-app", StaticFiles(directory=str(STATIC_DIR), html=True), name="mini-app")
+    app.mount(
+        "/mini-app", StaticFiles(directory=str(STATIC_DIR), html=True), name="mini-app"
+    )
 
 app.include_router(mini_app_router, prefix="/api/mini-app")
 

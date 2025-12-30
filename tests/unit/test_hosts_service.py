@@ -4,7 +4,7 @@ from services.config_service import HostsSyncSettings, TFConfig
 from services.hosts_service import build_hosts_block, upsert_managed_hosts_block
 
 
-def test_build_hosts_block_contains_wifi_and_tb_lines():
+def test_build_hosts_block_contains_mgmt_line():
     cfg = TFConfig.model_validate(
         {
             "telegram": {"bot_token": "test-token"},
@@ -14,24 +14,22 @@ def test_build_hosts_block_contains_wifi_and_tb_lines():
                     "managed_block_end": "# END thunder-forge",
                 }
             },
-            "nodes": [
-                {
-                    "name": "msm1",
-                    "ssh_user": "u",
-                    "ssh_host": "1.2.3.4",
-                    "wifi_ip": "192.168.1.101",
-                    "tb_ip": "172.16.10.2",
-                    "service_manager": "brew",
-                    "models": [],
-                }
-            ],
+            "nodes": {
+                "defaults": {"ssh_user": "u", "service_manager": "brew"},
+                "items": [
+                    {
+                        "name": "msm1",
+                        "ssh_host": "1.2.3.4",
+                        "mgmt_ip": "192.168.1.101",
+                    }
+                ],
+            },
         }
     )
 
     block = build_hosts_block(cfg).block
     assert "# BEGIN thunder-forge" in block
-    assert "192.168.1.101 msm1" in block
-    assert "172.16.10.2 msm1-tb" in block
+    assert "192.168.1.101 msm1-mgmt" in block
     assert "# END thunder-forge" in block
 
 
@@ -48,4 +46,7 @@ def test_upsert_replaces_existing_block():
 
 
 def inv_settings():
-    return HostsSyncSettings(managed_block_start="# BEGIN thunder-forge", managed_block_end="# END thunder-forge")
+    return HostsSyncSettings(
+        managed_block_start="# BEGIN thunder-forge",
+        managed_block_end="# END thunder-forge",
+    )

@@ -13,7 +13,9 @@ from api.webhook import app
 from services.config_service import load_config
 
 
-def _make_init_data(*, bot_token: str, user_id: int, auth_date: int | None = None) -> str:
+def _make_init_data(
+    *, bot_token: str, user_id: int, auth_date: int | None = None
+) -> str:
     auth_date = auth_date or int(time.time())
     user = {"id": user_id, "username": "admin"}
 
@@ -56,26 +58,38 @@ def _write_config(tmp_path, *, bot_token: str, admin_ids: list[int]) -> str:
         "  admin_telegram_ids:",
         *[f"    - {i}" for i in admin_ids],
         "nodes:",
-        "  - name: node1",
+        "  defaults:",
         "    ssh_user: u",
-        "    wifi_ip: 127.0.0.1",
         "    service_manager: brew",
+        "  items:",
+        "    - name: node1",
+        "      mgmt_ip: 127.0.0.1",
         "",
     ]
     path.write_text("\n".join(lines), encoding="utf-8")
     return str(path)
 
 
-def test_me_missing_init_data_is_401(monkeypatch: pytest.MonkeyPatch, tmp_path, client: TestClient):
-    monkeypatch.setenv("TF_CONFIG_PATH", _write_config(tmp_path, bot_token="test-token", admin_ids=[123]))
+def test_me_missing_init_data_is_401(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, client: TestClient
+):
+    monkeypatch.setenv(
+        "TF_CONFIG_PATH",
+        _write_config(tmp_path, bot_token="test-token", admin_ids=[123]),
+    )
     load_config.cache_clear()
 
     res = client.post("/api/mini-app/me", json={})
     assert res.status_code == 401
 
 
-def test_me_invalid_signature_is_401(monkeypatch: pytest.MonkeyPatch, tmp_path, client: TestClient):
-    monkeypatch.setenv("TF_CONFIG_PATH", _write_config(tmp_path, bot_token="test-token", admin_ids=[123]))
+def test_me_invalid_signature_is_401(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, client: TestClient
+):
+    monkeypatch.setenv(
+        "TF_CONFIG_PATH",
+        _write_config(tmp_path, bot_token="test-token", admin_ids=[123]),
+    )
     load_config.cache_clear()
 
     init_data = "auth_date=1&user=%7B%22id%22%3A123%7D&hash=deadbeef"
@@ -83,8 +97,13 @@ def test_me_invalid_signature_is_401(monkeypatch: pytest.MonkeyPatch, tmp_path, 
     assert res.status_code == 401
 
 
-def test_me_not_in_allowlist_is_403(monkeypatch: pytest.MonkeyPatch, tmp_path, client: TestClient):
-    monkeypatch.setenv("TF_CONFIG_PATH", _write_config(tmp_path, bot_token="test-token", admin_ids=[999]))
+def test_me_not_in_allowlist_is_403(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, client: TestClient
+):
+    monkeypatch.setenv(
+        "TF_CONFIG_PATH",
+        _write_config(tmp_path, bot_token="test-token", admin_ids=[999]),
+    )
     load_config.cache_clear()
 
     init_data = _make_init_data(bot_token="test-token", user_id=123)
@@ -93,7 +112,10 @@ def test_me_not_in_allowlist_is_403(monkeypatch: pytest.MonkeyPatch, tmp_path, c
 
 
 def test_me_admin_ok(monkeypatch: pytest.MonkeyPatch, tmp_path, client: TestClient):
-    monkeypatch.setenv("TF_CONFIG_PATH", _write_config(tmp_path, bot_token="test-token", admin_ids=[123]))
+    monkeypatch.setenv(
+        "TF_CONFIG_PATH",
+        _write_config(tmp_path, bot_token="test-token", admin_ids=[123]),
+    )
     load_config.cache_clear()
 
     init_data = _make_init_data(bot_token="test-token", user_id=123)

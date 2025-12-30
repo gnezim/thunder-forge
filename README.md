@@ -127,11 +127,21 @@ settings:
     managed_block_end: "# END thunder-forge"
 
 nodes:
-  - name: msm1
+  defaults:
     ssh_user: you
-    wifi_ip: 192.168.1.101
     service_manager: brew
-    # tb_ip: 172.16.10.2
+  items:
+    - name: msm1
+      mgmt_ip: 192.168.1.101
+
+fabricnet:
+  service_name: "Thunderbolt Bridge"
+  ipv4_defaults:
+    netmask: 255.255.255.252
+    router: ""
+  nodes:
+    - name: msm1
+      address: 172.16.10.2
 ```
 
 2. Run:
@@ -146,15 +156,15 @@ The server binds to `127.0.0.1:8000` by default.
 - This is intentionally **restricted**: if your Telegram user ID is not listed in `tf.yml` (`access.admin_telegram_ids`), the Mini App API returns `403`.
 - No DB is used; all state is computed on-demand from `tf.yml`.
 
-## Thunderbolt + hosts setup (script)
+## Fabric + hosts setup (script)
 
 This repo includes a KISS setup script that uses `tf.yml` to:
 
-- configure Thunderbolt Bridge IPv4 on each node (via SSH + `networksetup` on macOS)
+- configure fabric network IPv4 on each node (via SSH + `networksetup` on macOS; typically "Thunderbolt Bridge")
 - generate a managed `/etc/hosts` block and push it to all nodes
 
 Commands:
 
-- `make setup-env` (configures Thunderbolt bridge IPs; requires `tbnet` section per node)
+- `make setup-env` (configures fabric IPs; requires `fabricnet.nodes` entries)
 - `make hosts` (writes `artifacts/hosts.block`)
 - `make push-hosts` (writes `artifacts/hosts.block` and updates `/etc/hosts` on all nodes)

@@ -33,8 +33,7 @@ async def _help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await update.effective_message.reply_text(
-        "/start - show Mini App URL\n"
-        "/help - show this help\n"
+        "/start - show Mini App URL\n/help - show this help\n"
     )
 
 

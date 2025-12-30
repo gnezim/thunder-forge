@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from services.config_service import HostsSyncSettings, TFConfig
+from services.config_service import HostsSyncSettings, TFConfig, iter_nodes
 
 
 @dataclass(frozen=True)
@@ -14,14 +14,20 @@ def build_hosts_block(inventory: TFConfig) -> HostsArtifacts:
     start = inventory.settings.hosts_sync.managed_block_start
     end = inventory.settings.hosts_sync.managed_block_end
 
+    fabric_addr_by_name: dict[str, str] = {}
+    if inventory.fabricnet is not None:
+        fabric_addr_by_name = {n.name: n.address for n in inventory.fabricnet.nodes}
+
     lines: list[str] = [start]
-    for node in inventory.nodes:
-        # DRY/KISS:
-        # - <name> maps to Wi‑Fi (single canonical mapping)
-        # - <name>-tb is added only if TB IP is present and differs
-        lines.append(f"{node.wifi_ip} {node.name}")
-        if node.tb_ip and node.tb_ip != node.wifi_ip:
-            lines.append(f"{node.tb_ip} {node.name}-tb")
+    for node in iter_nodes(inventory):
+        # DRY/KISS: only one stable hostname per node.
+        # - <name>-mgmt maps to the management interface.
+        lines.append(f"{node.mgmt_ip} {node.name}-mgmt")
+
+        fabric_ip = fabric_addr_by_name.get(node.name)
+        if fabric_ip:
+            # Stable fabric hostname for direct Thunderbolt networking.
+            lines.append(f"{fabric_ip} {node.name}-fabric")
     lines.append(end)
 
     return HostsArtifacts(block="\n".join(lines) + "\n")

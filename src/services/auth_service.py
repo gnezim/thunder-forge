@@ -82,12 +82,16 @@ def _parse_user_from_init_data(init_data_raw: str) -> TelegramUser:
     try:
         user_dict = json.loads(user_json)
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=401, detail="Invalid user JSON in init data") from exc
+        raise HTTPException(
+            status_code=401, detail="Invalid user JSON in init data"
+        ) from exc
 
     try:
         return TelegramUser.model_validate(user_dict)
     except Exception as exc:  # pydantic validation
-        raise HTTPException(status_code=401, detail="Invalid user in init data") from exc
+        raise HTTPException(
+            status_code=401, detail="Invalid user in init data"
+        ) from exc
 
 
 def _enforce_auth_date(init_data_raw: str) -> None:
@@ -99,12 +103,16 @@ def _enforce_auth_date(init_data_raw: str) -> None:
     try:
         auth_date = int(auth_date_raw)
     except ValueError as exc:
-        raise HTTPException(status_code=401, detail="Invalid auth_date in init data") from exc
+        raise HTTPException(
+            status_code=401, detail="Invalid auth_date in init data"
+        ) from exc
 
     max_age_seconds = int(load_config().tma_max_age_seconds)
     now = int(time.time())
     if auth_date > now + 60:
-        raise HTTPException(status_code=401, detail="init data auth_date is in the future")
+        raise HTTPException(
+            status_code=401, detail="init data auth_date is in the future"
+        )
     if now - auth_date > max_age_seconds:
         raise HTTPException(status_code=401, detail="init data is too old")
 

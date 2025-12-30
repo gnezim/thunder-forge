@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from services.config_service import Node, TFConfig
+from services.config_service import Node, TFConfig, iter_nodes
 
 
 class PortStatus(BaseModel):
@@ -16,10 +16,10 @@ class PortStatus(BaseModel):
 
 class NodeStatus(BaseModel):
     name: str
-    wifi_ip: str
-    tb_ip: str | None
-    wifi: PortStatus
-    thunderbolt: PortStatus
+    mgmt_ip: str
+    fabric_ip: str | None
+    mgmt: PortStatus
+    fabric: PortStatus
 
 
 class ClusterStatus(BaseModel):
@@ -35,25 +35,32 @@ def _tcp_probe(host: str, port: int, timeout_seconds: float) -> bool:
         return False
 
 
-def _node_status(node: Node, ssh_port: int, ollama_port: int, timeout_seconds: float) -> NodeStatus:
-    wifi = PortStatus(
-        ssh=_tcp_probe(node.wifi_ip, ssh_port, timeout_seconds),
-        ollama=_tcp_probe(node.wifi_ip, ollama_port, timeout_seconds),
+def _node_status(
+    node: Node,
+    *,
+    fabric_ip: str | None,
+    ssh_port: int,
+    ollama_port: int,
+    timeout_seconds: float,
+) -> NodeStatus:
+    mgmt = PortStatus(
+        ssh=_tcp_probe(node.mgmt_ip, ssh_port, timeout_seconds),
+        ollama=_tcp_probe(node.mgmt_ip, ollama_port, timeout_seconds),
     )
-    if node.tb_ip:
-        thunderbolt = PortStatus(
-            ssh=_tcp_probe(node.tb_ip, ssh_port, timeout_seconds),
-            ollama=_tcp_probe(node.tb_ip, ollama_port, timeout_seconds),
+    if fabric_ip:
+        fabric = PortStatus(
+            ssh=_tcp_probe(fabric_ip, ssh_port, timeout_seconds),
+            ollama=_tcp_probe(fabric_ip, ollama_port, timeout_seconds),
         )
     else:
-        thunderbolt = PortStatus(ssh=False, ollama=False)
+        fabric = PortStatus(ssh=False, ollama=False)
 
     return NodeStatus(
         name=node.name,
-        wifi_ip=node.wifi_ip,
-        tb_ip=node.tb_ip,
-        wifi=wifi,
-        thunderbolt=thunderbolt,
+        mgmt_ip=node.mgmt_ip,
+        fabric_ip=fabric_ip,
+        mgmt=mgmt,
+        fabric=fabric,
     )
 
 
@@ -62,9 +69,19 @@ def get_cluster_status(inventory: TFConfig) -> ClusterStatus:
     ollama_port = inventory.settings.monitor.ollama_port
     timeout_seconds = inventory.settings.ssh.connect_timeout_seconds
 
+    fabric_addr_by_name: dict[str, str] = {}
+    if inventory.fabricnet is not None:
+        fabric_addr_by_name = {n.name: n.address for n in inventory.fabricnet.nodes}
+
     nodes = [
-        _node_status(node, ssh_port=ssh_port, ollama_port=ollama_port, timeout_seconds=timeout_seconds)
-        for node in inventory.nodes
+        _node_status(
+            node,
+            fabric_ip=fabric_addr_by_name.get(node.name),
+            ssh_port=ssh_port,
+            ollama_port=ollama_port,
+            timeout_seconds=timeout_seconds,
+        )
+        for node in iter_nodes(inventory)
     ]
     return ClusterStatus(ts=time.time(), nodes=nodes)
 
