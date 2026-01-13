@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +18,59 @@ from services.fabricnet_service import (
     configure_fabric_ipv4,
     require_macos_tahoe_26_2_plus,
 )
+
+
+def _resolve_fabric_ssh_host(
+    *, inventory, node_name: str, fallback_hostname: str
+) -> str:
+    fabricnet = getattr(inventory, "fabricnet", None)
+    if fabricnet is not None:
+        for item in fabricnet.nodes:
+            if item.name == node_name and item.address:
+                return str(item.address)
+    return fallback_hostname
+
+
+def _node_for_fabric_ssh(*, inventory, node):
+    host = _resolve_fabric_ssh_host(
+        inventory=inventory,
+        node_name=node.name,
+        fallback_hostname=f"{node.name}-fabric",
+    )
+    return node.model_copy(update={"ssh_host": host})
+
+
+def _run_remote_sh(*, node, ssh, shell_script: str, check: bool = True):
+    return run_ssh(
+        node=node,
+        settings=ssh,
+        remote_command=f"sh -lc {shlex.quote(shell_script)}",
+        check=check,
+    )
+
+
+def _parse_listen_is_external(lsof_text: str, port: int) -> tuple[bool, str]:
+    lines = [ln.strip() for ln in (lsof_text or "").splitlines() if ln.strip()]
+    if not lines:
+        return False, "not-listening"
+
+    port_token = f":{int(port)}"
+    joined = "\n".join(lines)
+
+    # lsof examples:
+    # - TCP *:11434 (LISTEN)
+    # - TCP 0.0.0.0:11434 (LISTEN)
+    # - TCP 127.0.0.1:11434 (LISTEN)
+    if f"*{port_token}" in joined or f"0.0.0.0{port_token}" in joined:
+        return True, "0.0.0.0"
+    if f"127.0.0.1{port_token}" in joined:
+        return False, "127.0.0.1"
+
+    # If it's bound to a specific interface IP (e.g. 169.254.x.y), treat as external.
+    if port_token in joined:
+        return True, "iface-ip"
+
+    return False, "unknown"
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -335,6 +389,191 @@ def _cmd_generate_hosts(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_ollama_check(args: argparse.Namespace) -> int:
+    if sys.platform != "darwin":
+        print("[error] ollama automation is macOS-only")
+        return 2
+
+    inventory = load_config(args.config)
+    ssh = inventory.settings.ssh
+    nodes = iter_nodes(inventory)
+    port = int(inventory.settings.monitor.ollama_port)
+    timeout_seconds = max(1.0, float(inventory.settings.ssh.connect_timeout_seconds))
+
+    only: set[str] | None = None
+    if getattr(args, "only", None):
+        raw = str(args.only)
+        only = {p.strip() for p in raw.split(",") if p.strip()}
+        nodes = [n for n in nodes if n.name in only]
+        if not nodes:
+            print(f"[error] no nodes matched --only={raw!r}")
+            return 2
+
+    print("[ollama] status check (no changes)")
+    failures: list[str] = []
+
+    for node in nodes:
+        if node.service_manager != "brew":
+            print(
+                f"- {node.name}: unsupported (service_manager={node.service_manager})"
+            )
+            failures.append(node.name)
+            continue
+
+        remote = _node_for_fabric_ssh(inventory=inventory, node=node)
+
+        installed = False
+        try:
+            r = _run_remote_sh(
+                node=remote, ssh=ssh, shell_script="command -v ollama >/dev/null 2>&1"
+            )
+            installed = r.returncode == 0
+        except RuntimeError:
+            installed = False
+
+        lsof_out = ""
+        if installed:
+            lsof_out = _run_remote_sh(
+                node=remote,
+                ssh=ssh,
+                shell_script=f"lsof -nP -iTCP:{port} -sTCP:LISTEN || true",
+                check=False,
+            ).stdout
+
+        is_external, listen_mode = _parse_listen_is_external(lsof_out, port)
+
+        http_local_ok = False
+        if installed:
+            http_local_ok = (
+                _run_remote_sh(
+                    node=remote,
+                    ssh=ssh,
+                    shell_script=f"curl -fsS --max-time 2 http://127.0.0.1:{port}/api/tags >/dev/null",
+                    check=False,
+                ).returncode
+                == 0
+            )
+
+        reachable = tcp_probe(
+            str(remote.ssh_host or remote.mgmt_ip), port, timeout_seconds
+        )
+
+        status_bits = []
+        status_bits.append("installed" if installed else "missing")
+        status_bits.append(f"listen={listen_mode}")
+        status_bits.append("http=ok" if http_local_ok else "http=fail")
+        status_bits.append("reach=ok" if reachable else "reach=fail")
+        status = ", ".join(status_bits)
+
+        ok = installed and is_external and http_local_ok and reachable
+        print(f"- {node.name}: {status} -> {'ok' if ok else 'needs-fix'}")
+        if not ok:
+            failures.append(node.name)
+
+    if failures:
+        print()
+        print(
+            f"[error] ollama not ready on {len(failures)} node(s): {', '.join(failures)}"
+        )
+        return 2
+    return 0
+
+
+def _cmd_ollama_ensure(args: argparse.Namespace) -> int:
+    if sys.platform != "darwin":
+        print("[error] ollama automation is macOS-only")
+        return 2
+
+    inventory = load_config(args.config)
+    ssh = inventory.settings.ssh
+    nodes = iter_nodes(inventory)
+    port = int(inventory.settings.monitor.ollama_port)
+
+    only: set[str] | None = None
+    if getattr(args, "only", None):
+        raw = str(args.only)
+        only = {p.strip() for p in raw.split(",") if p.strip()}
+        nodes = [n for n in nodes if n.name in only]
+        if not nodes:
+            print(f"[error] no nodes matched --only={raw!r}")
+            return 2
+
+    print("[ollama] ensure installed/configured/running")
+    failures: list[str] = []
+    for idx, node in enumerate(nodes):
+        if idx > 0:
+            print()
+
+        if node.service_manager != "brew":
+            print(
+                f"[error] {node.name}: unsupported (service_manager={node.service_manager})"
+            )
+            failures.append(node.name)
+            continue
+
+        remote = _node_for_fabric_ssh(inventory=inventory, node=node)
+
+        print(f"[ollama] {node.name}: ensuring brew+ollama")
+        # On macOS/Homebrew, the most reliable way to configure external bind for a
+        # brew-managed LaunchAgent is to persist EnvironmentVariables in the
+        # ~/Library/LaunchAgents/homebrew.mxcl.ollama.plist and restart the job in
+        # the gui/<uid> domain.
+        script = "\n".join(
+            [
+                "set -e",
+                # Find brew even when PATH is minimal (common over non-interactive SSH).
+                "BREW=",
+                "if command -v brew >/dev/null 2>&1; then BREW=brew; fi",
+                "if [ -z \"$BREW\" ] && [ -x /opt/homebrew/bin/brew ]; then BREW=/opt/homebrew/bin/brew; fi",
+                "if [ -z \"$BREW\" ] && [ -x /usr/local/bin/brew ]; then BREW=/usr/local/bin/brew; fi",
+                "[ -n \"$BREW\" ] || { echo 'brew not found'; exit 2; }",
+                # Install if missing.
+                "command -v ollama >/dev/null 2>&1 || $BREW install ollama",
+                # Ensure the LaunchAgent plist exists by starting via brew services.
+                "$BREW services start ollama >/dev/null 2>&1 || true",
+                "PL=\"$HOME/Library/LaunchAgents/homebrew.mxcl.ollama.plist\"",
+                "[ -f \"$PL\" ] || { echo \"missing launchagent plist: $PL\"; exit 2; }",
+                # Persist env vars.
+                f"/usr/libexec/PlistBuddy -c \"Add :EnvironmentVariables:OLLAMA_HOST string 0.0.0.0:{port}\" \"$PL\" 2>/dev/null || \\",
+                f"  /usr/libexec/PlistBuddy -c \"Set :EnvironmentVariables:OLLAMA_HOST 0.0.0.0:{port}\" \"$PL\"",
+                "/usr/libexec/PlistBuddy -c \"Add :EnvironmentVariables:OLLAMA_ORIGINS string *\" \"$PL\" 2>/dev/null || \\",
+                "  /usr/libexec/PlistBuddy -c \"Set :EnvironmentVariables:OLLAMA_ORIGINS *\" \"$PL\"",
+                # Restart via launchctl so the job picks up the updated plist env.
+                "USER_UID=$(id -u)",
+                "launchctl bootout gui/$USER_UID/homebrew.mxcl.ollama >/dev/null 2>&1 || true",
+                "launchctl bootstrap gui/$USER_UID \"$PL\" >/dev/null 2>&1",
+                "launchctl enable gui/$USER_UID/homebrew.mxcl.ollama >/dev/null 2>&1 || true",
+                "launchctl kickstart -k gui/$USER_UID/homebrew.mxcl.ollama >/dev/null 2>&1 || true",
+                "sleep 1",
+                # Local health check and external bind verification.
+                f"curl -fsS --max-time 3 http://127.0.0.1:{port}/api/tags >/dev/null",
+                f"lsof -nP -iTCP:{port} -sTCP:LISTEN | grep -E 'TCP (\\*|0\\.0\\.0\\.0):{port} .*LISTEN' >/dev/null",
+            ]
+        )
+
+        try:
+            _run_remote_sh(node=remote, ssh=ssh, shell_script=script, check=True)
+        except RuntimeError as e:
+            print(f"[error] {node.name}: ensure failed")
+            print(str(e))
+            failures.append(node.name)
+            continue
+
+    if failures:
+        print()
+        print(
+            f"[error] ollama ensure failed on {len(failures)} node(s): {', '.join(failures)}"
+        )
+        return 2
+
+    # Final verification in one pass.
+    print()
+    args_check = argparse.Namespace(
+        config=args.config, only=getattr(args, "only", None)
+    )
+    return _cmd_ollama_check(args_check)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(prog="setup-env")
     p.add_argument(
@@ -372,6 +611,28 @@ def main() -> int:
     )
     lh.add_argument("--out", default="artifacts/hosts.block")
     lh.set_defaults(func=_cmd_generate_hosts)
+
+    oc = sub.add_parser(
+        "ollama-check",
+        help="Check Ollama installation/config/status on nodes over fabric SSH (no changes)",
+    )
+    oc.add_argument(
+        "--only",
+        default=None,
+        help="Check only these node names (comma-separated), e.g. --only msm2",
+    )
+    oc.set_defaults(func=_cmd_ollama_check)
+
+    oe = sub.add_parser(
+        "ollama-ensure",
+        help="Install/configure/start Ollama on nodes over fabric SSH (macOS/brew)",
+    )
+    oe.add_argument(
+        "--only",
+        default=None,
+        help="Ensure only these node names (comma-separated), e.g. --only msm2",
+    )
+    oe.set_defaults(func=_cmd_ollama_ensure)
 
     args = p.parse_args()
     return int(args.func(args))

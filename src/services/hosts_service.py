@@ -28,6 +28,7 @@ def build_hosts_block(inventory: TFConfig) -> HostsArtifacts:
         if fabric_ip:
             # Stable fabric hostname for direct Thunderbolt networking.
             lines.append(f"{fabric_ip} {node.name}-fabric")
+            lines.append(f"{fabric_ip} {node.name}")
     lines.append(end)
 
     return HostsArtifacts(block="\n".join(lines) + "\n")
