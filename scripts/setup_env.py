@@ -1,19 +1,69 @@
 from __future__ import annotations
 
 import argparse
-import socket
 import subprocess
+import sys
 from pathlib import Path
 
 from services.hosts_service import build_hosts_block, upsert_managed_hosts_block
 from services.config_service import iter_nodes, load_config
+from services.macos_networksetup_service import (
+    parse_network_service_device,
+    parse_thunderbolt_devices,
+)
+from services.netprobe_service import tcp_probe
 from services.ssh_service import run_ssh
-from services.fabricnet_service import configure_fabric_ipv4, require_macos_tahoe_26_2_plus
+from services.fabricnet_service import (
+    configure_fabric_ipv4,
+    require_macos_tahoe_26_2_plus,
+)
 
 
 def _write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def _ensure_local_thunderbolt_bridge0(service_name: str) -> None:
+    if sys.platform != "darwin":
+        return
+
+    try:
+        order = subprocess.run(
+            ["networksetup", "-listnetworkserviceorder"],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
+    except Exception:
+        return
+
+    device = parse_network_service_device(
+        network_service_order_text=order or "", service_name=service_name
+    )
+    if device != "bridge0":
+        return
+
+    try:
+        hp = subprocess.run(
+            ["networksetup", "-listallhardwareports"],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
+    except Exception:
+        return
+
+    tb_devices = parse_thunderbolt_devices(hardware_ports_text=hp or "")
+    if not tb_devices:
+        return
+
+    cmds = [
+        "ifconfig bridge0 >/dev/null 2>&1 || ifconfig bridge0 create",
+        *[f"ifconfig bridge0 addm {d} >/dev/null 2>&1 || true" for d in tb_devices],
+        "ifconfig bridge0 up",
+    ]
+    subprocess.run(["sudo", "sh", "-lc", "; ".join(cmds)], check=False)
 
 
 def _cmd_configure_fabric(args: argparse.Namespace) -> int:
@@ -23,7 +73,9 @@ def _cmd_configure_fabric(args: argparse.Namespace) -> int:
     ssh_port = inventory.settings.monitor.ssh_port
     # Reachability checks should not reuse the SSH connect timeout. Users often
     # tune SSH timeout very low (e.g. 0.05s) which would create false negatives.
-    probe_timeout_seconds = max(1.0, float(inventory.settings.ssh.connect_timeout_seconds))
+    probe_timeout_seconds = max(
+        1.0, float(inventory.settings.ssh.connect_timeout_seconds)
+    )
 
     only: set[str] | None = None
     if getattr(args, "only", None):
@@ -43,10 +95,10 @@ def _cmd_configure_fabric(args: argparse.Namespace) -> int:
                     "What to do:",
                     "- Add something like:",
                     "  fabricnet:",
-                    "    service_name: \"Thunderbolt Bridge\"",
+                    '    service_name: "Thunderbolt Bridge"',
                     "    ipv4_defaults:",
                     "      netmask: 255.255.255.252",
-                    "      router: \"\"",
+                    '      router: ""',
                     "    nodes:",
                     "      - name: msm1",
                     "        address: 172.16.10.2",
@@ -169,28 +221,19 @@ def _cmd_configure_fabric(args: argparse.Namespace) -> int:
             return 2
         attempted.append(node.name)
 
-    print(f"Configured fabricnet on {len(attempted)}/{total} nodes: {', '.join(attempted)}")
-
-    def _tcp_probe(host: str, port: int, timeout: float) -> bool:
-        try:
-            # Force IPv4 + explicit timeout; avoids surprises with dual-stack.
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(timeout)
-            try:
-                return sock.connect_ex((host, port)) == 0
-            finally:
-                sock.close()
-        except OSError:
-            return False
+    print(
+        f"Configured fabricnet on {len(attempted)}/{total} nodes: {', '.join(attempted)}"
+    )
 
     print()
     print("[fabricnet] verifying reachability from hub")
+    _ensure_local_thunderbolt_bridge0(fabricnet.service_name)
     failures: list[str] = []
     for node in nodes:
         addr = fabric_addr_by_name.get(node.name)
         if not addr:
             continue
-        ok = _tcp_probe(addr, ssh_port, probe_timeout_seconds)
+        ok = tcp_probe(addr, ssh_port, probe_timeout_seconds)
         status = "ok" if ok else "unreachable"
         print(f"- {node.name}: {addr}:{ssh_port} -> {status}")
         if not ok:
@@ -208,6 +251,53 @@ def _cmd_configure_fabric(args: argparse.Namespace) -> int:
                     "- On a node, run: networksetup -getinfo <service>",
                 ]
             )
+        )
+        return 2
+
+    return 0
+
+
+def _cmd_check_fabric_reachability(args: argparse.Namespace) -> int:
+    inventory = load_config(args.config)
+    nodes = iter_nodes(inventory)
+    ssh_port = inventory.settings.monitor.ssh_port
+    probe_timeout_seconds = max(
+        1.0, float(inventory.settings.ssh.connect_timeout_seconds)
+    )
+
+    only: set[str] | None = None
+    if getattr(args, "only", None):
+        raw = str(args.only)
+        only = {p.strip() for p in raw.split(",") if p.strip()}
+        nodes = [n for n in nodes if n.name in only]
+        if not nodes:
+            print(f"[error] no nodes matched --only={raw!r}")
+            return 2
+
+    fabricnet = inventory.fabricnet
+    if fabricnet is None:
+        print("Missing top-level 'fabricnet' section in tf.yml.")
+        return 2
+
+    fabric_addr_by_name = {n.name: n.address for n in fabricnet.nodes}
+
+    print("[fabricnet] reachability check (no changes)")
+    failures: list[str] = []
+    for node in nodes:
+        addr = fabric_addr_by_name.get(node.name)
+        if not addr:
+            print(f"- {node.name}: (no fabric address in tf.yml) -> skipped")
+            continue
+        ok = tcp_probe(addr, ssh_port, probe_timeout_seconds)
+        status = "ok" if ok else "unreachable"
+        print(f"- {node.name}: {addr}:{ssh_port} -> {status}")
+        if not ok:
+            failures.append(node.name)
+
+    if failures:
+        print()
+        print(
+            f"[error] fabricnet reachability failed for {len(failures)} node(s): {', '.join(failures)}"
         )
         return 2
 
@@ -237,7 +327,9 @@ def _cmd_generate_hosts(args: argparse.Namespace) -> int:
     )
     if proc.returncode != 0:
         err = (proc.stderr or "").strip() or "(no stderr)"
-        raise RuntimeError(f"Failed to update /etc/hosts locally: rc={proc.returncode}\n{err}")
+        raise RuntimeError(
+            f"Failed to update /etc/hosts locally: rc={proc.returncode}\n{err}"
+        )
 
     print(f"wrote {local_out} and updated local /etc/hosts")
     return 0
@@ -262,6 +354,17 @@ def main() -> int:
         help="Configure only these node names (comma-separated), e.g. --only msm2",
     )
     fn.set_defaults(func=_cmd_configure_fabric)
+
+    fc = sub.add_parser(
+        "fabricnet-check",
+        help="Check fabric reachability from this machine (no network changes)",
+    )
+    fc.add_argument(
+        "--only",
+        default=None,
+        help="Check only these node names (comma-separated), e.g. --only msm2",
+    )
+    fc.set_defaults(func=_cmd_check_fabric_reachability)
 
     lh = sub.add_parser(
         "local-hosts",

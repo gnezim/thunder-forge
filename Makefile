@@ -5,7 +5,7 @@ UV ?= uv
 PORT ?= 8000
 BIND ?= 127.0.0.1
 
-.PHONY: help sync serve stop test format coverage check-i18n setup-env local-hosts
+.PHONY: help sync serve stop test format coverage check-i18n setup-env fabricnet-check local-hosts
 
 help: ## Show available make targets
 	@awk 'BEGIN {FS=":.*##"; printf "\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -46,6 +46,12 @@ setup-env: ## Configure fabric IPs on nodes
 	@echo "$(UV) run python scripts/setup_env.py fabricnet"
 	@echo
 	@$(UV) run python scripts/setup_env.py fabricnet
+
+fabricnet-check: ## Check fabric reachability from hub (no changes)
+	@echo
+	@echo "$(UV) run python scripts/setup_env.py fabricnet-check"
+	@echo
+	@$(UV) run python scripts/setup_env.py fabricnet-check
 
 # Update the hub's /etc/hosts (after setup-env succeeds)
 local-hosts: ## Update local /etc/hosts with *-mgmt/*-fabric entries

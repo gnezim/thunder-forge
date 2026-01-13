@@ -32,7 +32,7 @@ proxy:
   # - "streaming": No buffering, tokens stream immediately, low latency & low memory usage
   # - "standard": Normal HTTP delivery without forced flushing, suitable for REST APIs
   profile: "auto" # Available: auto, streaming, standard
-  load_balancer: "least-connections" # Available: round-robin, least-connections, priority
+  load_balancer: "round-robin" # Available: round-robin, least-connections, priority
   stream_buffer_size: 8192 # Buffer size per request - larger = fewer syscalls, more memory
   connection_timeout: 60s
   response_timeout: 900s
@@ -66,7 +66,7 @@ discovery:
   
   static:
     endpoints:
-      - url: "http://192.168.1.101:11434"
+      - url: "http://msm1-fabric:11434"
         name: "msm1"
         type: "ollama"
         priority: 80               # Highest priority
@@ -74,7 +74,7 @@ discovery:
         health_check_url: "/"
         check_interval: 2s
         check_timeout: 1s
-      - url: "http://192.168.1.102:11434"
+      - url: "http://msm2-fabric:11434"
         name: "msm2"
         type: "ollama"
         priority: 70
@@ -82,7 +82,7 @@ discovery:
         health_check_url: "/"
         check_interval: 2s
         check_timeout: 1s
-      - url: "http://192.168.1.103:11434"
+      - url: "http://msm3-fabric:11434"
         name: "msm3"
         type: "ollama"
         priority: 70
@@ -90,7 +90,7 @@ discovery:
         health_check_url: "/"
         check_interval: 2s
         check_timeout: 1s
-      - url: "http://192.168.1.104:11434"
+      - url: "http://msm4-fabric:11434"
         name: "msm4"
         type: "ollama"
         priority: 50

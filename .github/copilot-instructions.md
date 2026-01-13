@@ -1,4 +1,4 @@
-# thunder-forge (th) Copilot Instructions
+# thunder-forge (TF) Copilot Instructions
 
 DRY/KISS/YAGNI are main principles! Follow repo conventions exactly; if something conflicts or is unclear, stop and ask (don’t guess).
 

@@ -4,13 +4,19 @@ import re
 from typing import Literal
 
 from services.config_service import FabricIPv4Defaults, Node, SSHSettings
-from services.ssh_service import run_ssh, run_ssh_sudo
+from services.macos_networksetup_service import (
+    parse_network_service_device,
+    parse_thunderbolt_devices,
+)
+from services.ssh_service import run_ssh, run_ssh_sudo, run_ssh_sudo_shell
 
 
 def require_macos_tahoe_26_2_plus(*, node: Node, ssh: SSHSettings) -> None:
     # Policy: we support macOS Tahoe 26.2+ only for fabricnet automation.
     # This is a pragmatic guardrail around `networksetup` behavior.
-    out = run_ssh(node=node, settings=ssh, remote_command="sw_vers -productVersion").stdout
+    out = run_ssh(
+        node=node, settings=ssh, remote_command="sw_vers -productVersion"
+    ).stdout
     version_text = (out or "").strip()
     if not version_text:
         raise RuntimeError(
@@ -34,7 +40,9 @@ def require_macos_tahoe_26_2_plus(*, node: Node, ssh: SSHSettings) -> None:
         )
 
 
-def _get_service_ipv4_address(*, node: Node, ssh: SSHSettings, service_name: str) -> str | None:
+def _get_service_ipv4_address(
+    *, node: Node, ssh: SSHSettings, service_name: str
+) -> str | None:
     out = run_ssh(
         node=node,
         settings=ssh,
@@ -54,6 +62,88 @@ def _get_service_ipv4_address(*, node: Node, ssh: SSHSettings, service_name: str
     return value
 
 
+def _get_network_service_device(
+    *, node: Node, ssh: SSHSettings, service_name: str
+) -> str | None:
+    out = run_ssh(
+        node=node,
+        settings=ssh,
+        remote_command="networksetup -listnetworkserviceorder",
+        log_command=False,
+        log_output=False,
+    ).stdout
+    return parse_network_service_device(
+        network_service_order_text=out or "", service_name=service_name
+    )
+
+
+def _discover_thunderbolt_devices(*, node: Node, ssh: SSHSettings) -> list[str]:
+    out = run_ssh(
+        node=node,
+        settings=ssh,
+        remote_command="networksetup -listallhardwareports",
+        log_command=False,
+        log_output=False,
+    ).stdout
+    return parse_thunderbolt_devices(hardware_ports_text=out or "")
+
+
+def ensure_bridge0_for_thunderbolt(
+    *,
+    node: Node,
+    ssh: SSHSettings,
+    sudo_password: str | None = None,
+    sudo_interactive: bool = False,
+) -> list[str]:
+    devices = _discover_thunderbolt_devices(node=node, ssh=ssh)
+    if not devices:
+        raise RuntimeError(
+            f"{node.name}: no Thunderbolt hardware ports detected (networksetup -listallhardwareports)"
+        )
+
+    # Idempotent: create if missing, then try to add all thunderbolt en* to bridge0.
+    # Some commands may fail if the member already exists; ignore those.
+    parts: list[str] = [
+        "ifconfig bridge0 >/dev/null 2>&1 || ifconfig bridge0 create",
+    ]
+    parts.extend(
+        [f"ifconfig bridge0 addm {d} >/dev/null 2>&1 || true" for d in devices]
+    )
+    parts.append("ifconfig bridge0 up")
+    cmd = "; ".join(parts)
+
+    run_ssh_sudo_shell(
+        node=node,
+        settings=ssh,
+        shell_script=cmd,
+        sudo_password=sudo_password,
+        interactive=sudo_interactive,
+    )
+
+    return devices
+
+
+def ensure_bridge0_ipv4(
+    *,
+    node: Node,
+    ssh: SSHSettings,
+    address: str,
+    netmask: str,
+    sudo_password: str | None = None,
+    sudo_interactive: bool = False,
+) -> None:
+    # `networksetup` can report the manual config while `bridge0` is missing or
+    # doesn't actually have the IPv4 assigned; ensure it is present on the interface.
+    cmd = f"ifconfig bridge0 | grep -q 'inet {address} ' || ifconfig bridge0 inet {address} netmask {netmask}"
+    run_ssh_sudo_shell(
+        node=node,
+        settings=ssh,
+        shell_script=cmd,
+        sudo_password=sudo_password,
+        interactive=sudo_interactive,
+    )
+
+
 def configure_fabric_ipv4(
     *,
     node: Node,
@@ -61,7 +151,9 @@ def configure_fabric_ipv4(
     service_name: str,
     address: str,
     ipv4_defaults: FabricIPv4Defaults,
-    ipv4_mode: Literal["dhcp_with_manual_address", "manual"] = "dhcp_with_manual_address",
+    ipv4_mode: Literal[
+        "dhcp_with_manual_address", "manual"
+    ] = "dhcp_with_manual_address",
     enforce_macos_version_check: bool = True,
     sudo_password: str | None = None,
     sudo_interactive: bool = False,
@@ -72,11 +164,19 @@ def configure_fabric_ipv4(
     netmask = ipv4_defaults.netmask
     router = ipv4_defaults.router or "0.0.0.0"
 
+    svc = _get_network_service_device(node=node, ssh=ssh, service_name=service_name)
+    is_bridge0_service = bool(svc == "bridge0")
+    if is_bridge0_service:
+        ensure_bridge0_for_thunderbolt(
+            node=node,
+            ssh=ssh,
+            sudo_password=sudo_password,
+            sudo_interactive=sudo_interactive,
+        )
+
     # macOS: configure a named network service (e.g., "Thunderbolt Bridge").
     if ipv4_mode == "dhcp_with_manual_address":
-        cmd = (
-            f"networksetup -setmanualwithdhcprouter {service_name!r} {address} {netmask} {router}"
-        )
+        cmd = f"networksetup -setmanualwithdhcprouter {service_name!r} {address} {netmask} {router}"
     elif ipv4_mode == "manual":
         cmd = f"networksetup -setmanual {service_name!r} {address} {netmask} {router}"
     else:
@@ -88,6 +188,16 @@ def configure_fabric_ipv4(
         sudo_password=sudo_password,
         interactive=sudo_interactive,
     )
+
+    if is_bridge0_service:
+        ensure_bridge0_ipv4(
+            node=node,
+            ssh=ssh,
+            address=address,
+            netmask=netmask,
+            sudo_password=sudo_password,
+            sudo_interactive=sudo_interactive,
+        )
 
     # Read-back verification: `networksetup` sometimes returns success but the
     # service may still show a self-assigned IP if the change didn't stick.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import shlex
 import subprocess
 from dataclasses import dataclass
 
@@ -19,7 +20,9 @@ _has_logged_command_in_current_host_block: bool = False
 
 
 def _format_remote_command_for_log(remote_command: str) -> str:
-    lines = [line.rstrip() for line in remote_command.strip().splitlines() if line.strip()]
+    lines = [
+        line.rstrip() for line in remote_command.strip().splitlines() if line.strip()
+    ]
     if not lines:
         return ""
     if len(lines) == 1:
@@ -162,4 +165,29 @@ def run_ssh_sudo(
         remote_command=f"sudo -S -p '' {remote_command}",
         check=check,
         input_text=f"{sudo_password}\n",
+    )
+
+
+def run_ssh_sudo_shell(
+    *,
+    node: Node,
+    settings: SSHSettings,
+    shell_script: str,
+    check: bool = True,
+    sudo_password: str | None = None,
+    interactive: bool = False,
+) -> SSHResult:
+    """Run a shell script under sudo on the remote.
+
+    This is the safest way to execute multi-command sequences (pipes, &&, ;)
+    with sudo, especially in interactive mode where only the first token would
+    otherwise be prefixed with sudo.
+    """
+    return run_ssh_sudo(
+        node=node,
+        settings=settings,
+        remote_command=f"sh -lc {shlex.quote(shell_script)}",
+        check=check,
+        sudo_password=sudo_password,
+        interactive=interactive,
     )
