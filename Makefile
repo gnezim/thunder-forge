@@ -43,9 +43,9 @@ check-i18n: ## Validate i18n file
 # Configure fabric networking from tf.yml
 setup-env: ## Configure fabric IPs on nodes
 	@echo
-	@echo "$(UV) run python scripts/setup_env.py fabricnet"
+	@echo "$(UV) run python scripts/setup_env.py fabricnet --sudo-password-once"
 	@echo
-	@$(UV) run python scripts/setup_env.py fabricnet
+	@$(UV) run python scripts/setup_env.py fabricnet --sudo-password-once
 
 fabricnet-check: ## Check fabric reachability from hub (no changes)
 	@echo

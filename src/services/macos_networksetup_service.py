@@ -3,6 +3,59 @@ from __future__ import annotations
 import re
 
 
+def parse_networksetup_getinfo_ipv4(*, getinfo_text: str) -> dict[str, str | None]:
+    """Parse IPv4 details from `networksetup -getinfo <service>` output.
+
+    Returns keys: ip_address, subnet_mask, router (values may be None).
+    """
+
+    text = (getinfo_text or "").strip()
+    if not text:
+        return {"ip_address": None, "subnet_mask": None, "router": None}
+
+    def _pick(label: str) -> str | None:
+        m = re.search(rf"^{re.escape(label)}:\s*(.+?)\s*$", text, flags=re.MULTILINE)
+        if not m:
+            return None
+        value = (m.group(1) or "").strip()
+        if not value or value.lower() in {"none", "(null)"}:
+            return None
+        return value
+
+    return {
+        "ip_address": _pick("IP address"),
+        "subnet_mask": _pick("Subnet mask"),
+        "router": _pick("Router"),
+    }
+
+
+def parse_ifconfig_status(*, ifconfig_text: str) -> str | None:
+    """Extract link status from `ifconfig <iface>` output.
+
+    Typical line: `status: active` or `status: inactive`.
+    """
+    text = (ifconfig_text or "")
+    m = re.search(r"^\s*status:\s*(\w+)\s*$", text, flags=re.MULTILINE)
+    if not m:
+        return None
+    value = (m.group(1) or "").strip().lower()
+    return value or None
+
+
+def parse_ifconfig_bridge_members(*, ifconfig_text: str) -> list[str]:
+    """Return member interface names (e.g. en5) from `ifconfig bridge0` output."""
+    text = (ifconfig_text or "")
+    members = re.findall(r"^\s*member:\s*(\w+)\s+flags=", text, flags=re.MULTILINE)
+    # Preserve order while removing duplicates.
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for m in members:
+        if m not in seen:
+            seen.add(m)
+            ordered.append(m)
+    return ordered
+
+
 def parse_network_service_device(
     *, network_service_order_text: str, service_name: str
 ) -> str | None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from typing import Literal
 
 from services.config_service import FabricIPv4Defaults, Node, SSHSettings
@@ -166,37 +167,53 @@ def configure_fabric_ipv4(
 
     svc = _get_network_service_device(node=node, ssh=ssh, service_name=service_name)
     is_bridge0_service = bool(svc == "bridge0")
-    if is_bridge0_service:
-        ensure_bridge0_for_thunderbolt(
-            node=node,
-            ssh=ssh,
-            sudo_password=sudo_password,
-            sudo_interactive=sudo_interactive,
-        )
 
-    # macOS: configure a named network service (e.g., "Thunderbolt Bridge").
+    # Configure the service under sudo. When the service maps to bridge0 we run
+    # all bridge operations + networksetup in a single sudo shell. This avoids
+    # multiple password prompts on hosts with sudo tty tickets.
     if ipv4_mode == "dhcp_with_manual_address":
-        cmd = f"networksetup -setmanualwithdhcprouter {service_name!r} {address} {netmask} {router}"
+        networksetup_cmd = (
+            f"networksetup -setmanualwithdhcprouter {shlex.quote(service_name)} "
+            f"{shlex.quote(address)} {shlex.quote(netmask)} {shlex.quote(router)}"
+        )
     elif ipv4_mode == "manual":
-        cmd = f"networksetup -setmanual {service_name!r} {address} {netmask} {router}"
+        networksetup_cmd = (
+            f"networksetup -setmanual {shlex.quote(service_name)} "
+            f"{shlex.quote(address)} {shlex.quote(netmask)} {shlex.quote(router)}"
+        )
     else:
         raise ValueError(f"Unsupported fabricnet ipv4_mode: {ipv4_mode!r}")
-    run_ssh_sudo(
-        node=node,
-        settings=ssh,
-        remote_command=cmd,
-        sudo_password=sudo_password,
-        interactive=sudo_interactive,
-    )
 
     if is_bridge0_service:
-        ensure_bridge0_ipv4(
+        devices = _discover_thunderbolt_devices(node=node, ssh=ssh)
+        if not devices:
+            raise RuntimeError(
+                f"{node.name}: no Thunderbolt hardware ports detected (networksetup -listallhardwareports)"
+            )
+
+        parts: list[str] = [
+            "ifconfig bridge0 >/dev/null 2>&1 || ifconfig bridge0 create",
+            *[f"ifconfig bridge0 addm {d} >/dev/null 2>&1 || true" for d in devices],
+            "ifconfig bridge0 up",
+            networksetup_cmd,
+            # Ensure the IPv4 is actually on bridge0 (networksetup can report success while bridge0 is missing).
+            f"ifconfig bridge0 | grep -q 'inet {address} ' || ifconfig bridge0 inet {address} netmask {netmask}",
+        ]
+
+        run_ssh_sudo_shell(
             node=node,
-            ssh=ssh,
-            address=address,
-            netmask=netmask,
+            settings=ssh,
+            shell_script="; ".join(parts),
             sudo_password=sudo_password,
-            sudo_interactive=sudo_interactive,
+            interactive=sudo_interactive,
+        )
+    else:
+        run_ssh_sudo(
+            node=node,
+            settings=ssh,
+            remote_command=networksetup_cmd,
+            sudo_password=sudo_password,
+            interactive=sudo_interactive,
         )
 
     # Read-back verification: `networksetup` sometimes returns success but the

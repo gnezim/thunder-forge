@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import shlex
 import subprocess
 import sys
@@ -10,7 +11,10 @@ from services.hosts_service import build_hosts_block, upsert_managed_hosts_block
 from services.config_service import iter_nodes, load_config
 from services.macos_networksetup_service import (
     parse_network_service_device,
+    parse_networksetup_getinfo_ipv4,
     parse_thunderbolt_devices,
+    parse_ifconfig_status,
+    parse_ifconfig_bridge_members,
 )
 from services.netprobe_service import tcp_probe
 from services.ssh_service import run_ssh
@@ -78,7 +82,9 @@ def _write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _ensure_local_thunderbolt_bridge0(service_name: str) -> None:
+def _ensure_local_thunderbolt_bridge0(
+    service_name: str, *, sudo_password: str | None = None
+) -> None:
     if sys.platform != "darwin":
         return
 
@@ -117,7 +123,158 @@ def _ensure_local_thunderbolt_bridge0(service_name: str) -> None:
         *[f"ifconfig bridge0 addm {d} >/dev/null 2>&1 || true" for d in tb_devices],
         "ifconfig bridge0 up",
     ]
-    subprocess.run(["sudo", "sh", "-lc", "; ".join(cmds)], check=False)
+    if sudo_password is None:
+        subprocess.run(["sudo", "sh", "-lc", "; ".join(cmds)], check=False)
+    else:
+        subprocess.run(
+            ["sudo", "-S", "-p", "", "sh", "-lc", "; ".join(cmds)],
+            input=f"{sudo_password}\n",
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+
+def _hub_diag_macos_fabric_service(*, service_name: str) -> tuple[bool, list[str]]:
+    """Best-effort diagnostics for a macOS network service on the local hub.
+
+    Returns (ok, lines). This function performs no changes.
+    """
+    if sys.platform != "darwin":
+        return True, ["[fabricnet] hub: macOS checks skipped (not darwin)"]
+
+    lines: list[str] = []
+    try:
+        services_out = subprocess.run(
+            ["networksetup", "-listallnetworkservices"],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
+    except Exception as exc:
+        return True, [f"[fabricnet] hub: unable to run networksetup: {exc}"]
+
+    services = [
+        ln.strip().lstrip("*").strip() for ln in (services_out or "").splitlines() if ln.strip()
+    ]
+    if services and services[0].lower().startswith("an asterisk"):
+        services = services[1:]
+
+    if service_name not in services:
+        available = "\n".join(f"- {s}" for s in services) or "(none detected)"
+        lines.extend(
+            [
+                f"[warn] hub: {service_name!r} is not a recognized macOS network service",
+                "What to do:",
+                "- System Settings → Network → … → Add Service",
+                "- Or choose the exact existing name and set it in tf.yml under fabricnet.service_name",
+                "Available services:",
+                available,
+            ]
+        )
+        return False, lines
+
+    try:
+        order_out = subprocess.run(
+            ["networksetup", "-listnetworkserviceorder"],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
+    except Exception:
+        order_out = ""
+
+    device = parse_network_service_device(
+        network_service_order_text=order_out or "", service_name=service_name
+    )
+    device_text = device or "(unknown device)"
+
+    try:
+        info_out = subprocess.run(
+            ["networksetup", "-getinfo", service_name],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
+    except Exception:
+        info_out = ""
+
+    ipv4 = parse_networksetup_getinfo_ipv4(getinfo_text=info_out or "")
+    ip_address = ipv4.get("ip_address") or "(none)"
+    subnet_mask = ipv4.get("subnet_mask") or "(none)"
+    router = ipv4.get("router") or "(none)"
+
+    link_status: str | None = None
+    bridge_members: list[str] = []
+    if device:
+        try:
+            ifc = subprocess.run(
+                ["ifconfig", device],
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            ifc_text = (ifc.stdout or "") + (ifc.stderr or "")
+            link_status = parse_ifconfig_status(ifconfig_text=ifc_text)
+            if device == "bridge0":
+                bridge_members = parse_ifconfig_bridge_members(ifconfig_text=ifc_text)
+        except Exception:
+            link_status = None
+
+    lines.extend(
+        [
+            "[fabricnet] hub: local network service diagnostics",
+            f"- service: {service_name}",
+            f"- device:  {device_text}",
+            f"- ipv4:    {ip_address} (mask {subnet_mask}, router {router})",
+            f"- link:    {link_status or '(unknown)'}",
+        ]
+    )
+
+    if device == "bridge0":
+        members_text = ", ".join(bridge_members) if bridge_members else "(none)"
+        lines.append(f"- members: {members_text}")
+
+    # Heuristic: treat an explicit inactive link as a strong indicator of “Not Connected”.
+    ok = True
+    if link_status == "inactive":
+        ok = False
+        lines.extend(
+            [
+                "[warn] hub: link is inactive (macOS usually shows this as 'Not Connected')",
+                "Fix steps (in order):",
+                "- Verify it is a Thunderbolt (not USB-C) cable; try a certified TB3/TB4 40Gbps cable",
+                "- System Report → Thunderbolt/USB4: confirm the peer/device enumerates",
+                "- Approve the accessory if prompted (Privacy & Security → Allow accessories)",
+                "- Power-cycle the dock/cable, then reboot the hub",
+                "- If you are using a USB-C hub: it may not support Thunderbolt networking; use direct TB or Ethernet",
+            ]
+        )
+
+    if device == "bridge0" and not bridge_members:
+        ok = False
+        lines.extend(
+            [
+                "[warn] hub: bridge0 has no member interfaces (Thunderbolt en* ports not attached)",
+                "What this means:",
+                "- Even with a manual 169.254.x.y set, macOS will show 'Not Connected' if the TB ports aren't bridged",
+                "Fix steps:",
+                "- Run: make setup-env (will use sudo to create bridge0 and add Thunderbolt en* members)",
+                "- Or manually: sudo ifconfig bridge0 create; sudo ifconfig bridge0 addm <enX>; sudo ifconfig bridge0 up",
+            ]
+        )
+
+    # Extra hint for bridge0-based setups.
+    if device == "bridge0":
+        lines.extend(
+            [
+                "Notes:",
+                "- This service maps to bridge0; the interface must have Thunderbolt en* members.",
+                "- The setup target will try to ensure this: make setup-env",
+            ]
+        )
+
+    return ok, lines
 
 
 def _cmd_configure_fabric(args: argparse.Namespace) -> int:
@@ -186,6 +343,12 @@ def _cmd_configure_fabric(args: argparse.Namespace) -> int:
             return 2
 
     attempted: list[str] = []
+
+    sudo_password: str | None = None
+    if getattr(args, "sudo_password_once", False):
+        # Best-effort: this assumes the same password works on all nodes.
+        # If a node differs, its sudo will fail and we surface the error.
+        sudo_password = getpass.getpass("Sudo password (used for all nodes): ")
     for idx, node in enumerate(nodes):
         if idx > 0:
             print()
@@ -250,7 +413,8 @@ def _cmd_configure_fabric(args: argparse.Namespace) -> int:
                 ipv4_defaults=fabricnet.ipv4_defaults,
                 ipv4_mode=fabricnet.ipv4_mode,
                 enforce_macos_version_check=False,
-                sudo_interactive=True,
+                sudo_password=sudo_password,
+                sudo_interactive=(sudo_password is None),
             )
         except RuntimeError as e:
             msg = str(e)
@@ -281,7 +445,9 @@ def _cmd_configure_fabric(args: argparse.Namespace) -> int:
 
     print()
     print("[fabricnet] verifying reachability from hub")
-    _ensure_local_thunderbolt_bridge0(fabricnet.service_name)
+    _ensure_local_thunderbolt_bridge0(
+        fabricnet.service_name, sudo_password=sudo_password
+    )
     failures: list[str] = []
     for node in nodes:
         addr = fabric_addr_by_name.get(node.name)
@@ -336,6 +502,18 @@ def _cmd_check_fabric_reachability(args: argparse.Namespace) -> int:
     fabric_addr_by_name = {n.name: n.address for n in fabricnet.nodes}
 
     print("[fabricnet] reachability check (no changes)")
+
+    # Hub-side diagnostics (no changes): helps explain “Thunderbolt Bridge: Not connected”.
+    ok_hub, diag_lines = _hub_diag_macos_fabric_service(
+        service_name=fabricnet.service_name
+    )
+    print("\n".join(diag_lines))
+    if sys.platform == "darwin" and fabricnet.service_name != "Thunderbolt Bridge":
+        ok_tb, tb_lines = _hub_diag_macos_fabric_service(service_name="Thunderbolt Bridge")
+        # Only print this extra section if the service exists or looks disconnected.
+        if (not ok_tb) or any("Thunderbolt Bridge" in ln for ln in tb_lines):
+            print("\n".join(tb_lines))
+
     failures: list[str] = []
     for node in nodes:
         addr = fabric_addr_by_name.get(node.name)
@@ -353,6 +531,13 @@ def _cmd_check_fabric_reachability(args: argparse.Namespace) -> int:
         print(
             f"[error] fabricnet reachability failed for {len(failures)} node(s): {', '.join(failures)}"
         )
+        return 2
+
+    if not ok_hub:
+        # Reachability can still succeed even if macOS shows “Not connected” for a different service,
+        # but surface the hub warning with a non-zero exit so automation catches it.
+        print()
+        print("[error] hub fabric service looks disconnected; see warnings above")
         return 2
 
     return 0
@@ -591,6 +776,12 @@ def main() -> int:
         "--only",
         default=None,
         help="Configure only these node names (comma-separated), e.g. --only msm2",
+    )
+    fn.add_argument(
+        "--sudo-password-once",
+        action="store_true",
+        help="Prompt once and reuse sudo password for all nodes (avoids repeated prompts; assumes same password everywhere)",
+        dest="sudo_password_once",
     )
     fn.set_defaults(func=_cmd_configure_fabric)
 
