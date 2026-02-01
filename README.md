@@ -38,12 +38,12 @@ Typical managed parts:
 
 - **Nodes**: machines in a self-hosted cluster (e.g., several Mac Studios)
 - **LLMs on nodes**: models served locally via Ollama (https://github.com/ollama/ollama)
-- **Automation/agents runtime**: workflows and long-running processes (often via n8n)
-  - n8n: https://github.com/n8n-io/n8n
+- **Assistants**: AI assistants for task execution and automation
+  - openclaw: https://github.com/openclaw/openclaw
 - **Skills**: reusable tool capabilities agents can invoke
   - `github_repo` skills (agent skills): https://github.com/agentskills/agentskills
 
-> Note: n8n and skills catalogs are intended integration points. This repo is the
+> Note: assistants like openclaw and skills catalogs are intended integration points. This repo is the
 > operational “glue” and runbooks/specs layer to run them self-hosted.
 
 ## Ecosystem map
@@ -63,7 +63,7 @@ flowchart LR
 
   N --> O["Local LLMs<br/>(Ollama)"]
 
-  W["Orchestrator (optional)<br/>(n8n)"] --> A
+  W["Assistants<br/>(openclaw)"] --> A
   W --> S
 ```
 
@@ -84,7 +84,7 @@ Near-term intended contents include:
 
 - node inventory/specs and bootstrap runbooks
 - model/LLM deployment conventions (Ollama-managed)
-- agent/workflow conventions (including optional n8n patterns)
+- agent/workflow conventions (including openclaw assistant integration)
 - a skills registry format + examples
 
 ## Localhost Mini App (restricted, no DB)
