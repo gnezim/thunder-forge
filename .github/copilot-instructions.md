@@ -7,8 +7,7 @@ DRY/KISS/YAGNI are main principles! Follow repo conventions exactly; if somethin
 - Key dirs: `src/api/` (FastAPI + webhook + Mini App API + MCP), `src/bot/` (handlers/config), `src/services/` (business logic), `src/static/mini_app/` (Mini App assets + `translations.json`), `tests/{unit,contract,integration}`.
 
 ## Runtime & Dev Workflows (use these)
-- Use: `make sync`, `make serve`, `make stop`, `make test`, `make format`, `make coverage`, `make check-i18n`.
-- Use `uv` for all Python execution.
+- Use: `make sync`, `make serve`, `make stop`, `make test`, `make format`, `make coverage`, `make check-i18n`.- Infrastructure/cluster management: `make setup-env`, `make fabricnet-check`, `make ollama-ensure`, `make ollama-check`.- Use `uv` for all Python execution.
 	- Targeted tests: `uv run pytest tests/path::test_name -v`
 	- One-off scripts: `uv run python -c "..."`
 - Don’t run `uvicorn`/`python`/`pytest` directly for app lifecycle; use the Make targets (which should use `uv run`).

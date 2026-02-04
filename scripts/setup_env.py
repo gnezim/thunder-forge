@@ -699,47 +699,126 @@ def _cmd_ollama_ensure(args: argparse.Namespace) -> int:
         remote = _node_for_fabric_ssh(inventory=inventory, node=node)
 
         print(f"[ollama] {node.name}: ensuring brew+ollama")
-        # On macOS/Homebrew, the most reliable way to configure external bind for a
-        # brew-managed LaunchAgent is to persist EnvironmentVariables in the
-        # ~/Library/LaunchAgents/homebrew.mxcl.ollama.plist and restart the job in
-        # the gui/<uid> domain.
-        script = "\n".join(
-            [
-                "set -e",
-                # Find brew even when PATH is minimal (common over non-interactive SSH).
-                "BREW=",
-                "if command -v brew >/dev/null 2>&1; then BREW=brew; fi",
-                "if [ -z \"$BREW\" ] && [ -x /opt/homebrew/bin/brew ]; then BREW=/opt/homebrew/bin/brew; fi",
-                "if [ -z \"$BREW\" ] && [ -x /usr/local/bin/brew ]; then BREW=/usr/local/bin/brew; fi",
-                "[ -n \"$BREW\" ] || { echo 'brew not found'; exit 2; }",
-                # Install if missing.
-                "command -v ollama >/dev/null 2>&1 || $BREW install ollama",
-                # Ensure the LaunchAgent plist exists by starting via brew services.
-                "$BREW services start ollama >/dev/null 2>&1 || true",
-                "PL=\"$HOME/Library/LaunchAgents/homebrew.mxcl.ollama.plist\"",
-                "[ -f \"$PL\" ] || { echo \"missing launchagent plist: $PL\"; exit 2; }",
-                # Persist env vars.
-                f"/usr/libexec/PlistBuddy -c \"Add :EnvironmentVariables:OLLAMA_HOST string 0.0.0.0:{port}\" \"$PL\" 2>/dev/null || \\",
-                f"  /usr/libexec/PlistBuddy -c \"Set :EnvironmentVariables:OLLAMA_HOST 0.0.0.0:{port}\" \"$PL\"",
-                "/usr/libexec/PlistBuddy -c \"Add :EnvironmentVariables:OLLAMA_ORIGINS string *\" \"$PL\" 2>/dev/null || \\",
-                "  /usr/libexec/PlistBuddy -c \"Set :EnvironmentVariables:OLLAMA_ORIGINS *\" \"$PL\"",
-                # Restart via launchctl so the job picks up the updated plist env.
-                "USER_UID=$(id -u)",
-                "launchctl bootout gui/$USER_UID/homebrew.mxcl.ollama >/dev/null 2>&1 || true",
-                "launchctl bootstrap gui/$USER_UID \"$PL\" >/dev/null 2>&1",
-                "launchctl enable gui/$USER_UID/homebrew.mxcl.ollama >/dev/null 2>&1 || true",
-                "launchctl kickstart -k gui/$USER_UID/homebrew.mxcl.ollama >/dev/null 2>&1 || true",
-                "sleep 1",
-                # Local health check and external bind verification.
-                f"curl -fsS --max-time 3 http://127.0.0.1:{port}/api/tags >/dev/null",
-                f"lsof -nP -iTCP:{port} -sTCP:LISTEN | grep -E 'TCP (\\*|0\\.0\\.0\\.0):{port} .*LISTEN' >/dev/null",
-            ]
-        )
-
+        
+        # Step 1: Find brew
+        print(f"  → checking for homebrew installation")
+        find_brew = "\n".join([
+            "BREW=",
+            "if command -v brew >/dev/null 2>&1; then BREW=brew; fi",
+            "if [ -z \"$BREW\" ] && [ -x /opt/homebrew/bin/brew ]; then BREW=/opt/homebrew/bin/brew; fi",
+            "if [ -z \"$BREW\" ] && [ -x /usr/local/bin/brew ]; then BREW=/usr/local/bin/brew; fi",
+            "[ -n \"$BREW\" ] || { echo 'brew not found'; exit 2; }",
+            "echo \"found: $BREW\"",
+        ])
         try:
-            _run_remote_sh(node=remote, ssh=ssh, shell_script=script, check=True)
+            result = _run_remote_sh(node=remote, ssh=ssh, shell_script=find_brew, check=True)
+            brew_path = (result.stdout or "").strip().replace("found: ", "")
+            if brew_path:
+                print(f"  ✓ homebrew: {brew_path}")
         except RuntimeError as e:
-            print(f"[error] {node.name}: ensure failed")
+            print(f"[error] {node.name}: homebrew not found")
+            print(str(e))
+            failures.append(node.name)
+            continue
+        
+        # Step 2: Install ollama if missing
+        print(f"  → ensuring ollama is installed")
+        install_ollama = f"command -v ollama >/dev/null 2>&1 && echo 'already installed' || ({brew_path} install ollama && echo 'installed')"
+        try:
+            result = _run_remote_sh(node=remote, ssh=ssh, shell_script=install_ollama, check=True)
+            status = (result.stdout or "").strip()
+            print(f"  ✓ ollama: {status}")
+        except RuntimeError as e:
+            print(f"[error] {node.name}: failed to install ollama")
+            print(str(e))
+            failures.append(node.name)
+            continue
+        
+        # Step 3: Ensure LaunchAgent plist exists
+        print(f"  → ensuring LaunchAgent plist exists")
+        ensure_plist = f"{brew_path} services start ollama >/dev/null 2>&1 || true; [ -f \"$HOME/Library/LaunchAgents/homebrew.mxcl.ollama.plist\" ] && echo 'plist exists' || echo 'plist missing'"
+        try:
+            result = _run_remote_sh(node=remote, ssh=ssh, shell_script=ensure_plist, check=True)
+            status = (result.stdout or "").strip()
+            if "missing" in status:
+                print(f"[error] {node.name}: LaunchAgent plist not created")
+                failures.append(node.name)
+                continue
+            print(f"  ✓ plist: {status}")
+        except RuntimeError as e:
+            print(f"[error] {node.name}: failed to verify plist")
+            print(str(e))
+            failures.append(node.name)
+            continue
+        
+        # Step 4: Configure environment variables
+        print(f"  → configuring OLLAMA_HOST=0.0.0.0:{port} and OLLAMA_ORIGINS=*")
+        configure_env = "\n".join([
+            "PL=\"$HOME/Library/LaunchAgents/homebrew.mxcl.ollama.plist\"",
+            f"/usr/libexec/PlistBuddy -c \"Add :EnvironmentVariables:OLLAMA_HOST string 0.0.0.0:{port}\" \"$PL\" 2>/dev/null || \\",
+            f"  /usr/libexec/PlistBuddy -c \"Set :EnvironmentVariables:OLLAMA_HOST 0.0.0.0:{port}\" \"$PL\"",
+            "/usr/libexec/PlistBuddy -c \"Add :EnvironmentVariables:OLLAMA_ORIGINS string *\" \"$PL\" 2>/dev/null || \\",
+            "  /usr/libexec/PlistBuddy -c \"Set :EnvironmentVariables:OLLAMA_ORIGINS *\" \"$PL\"",
+            "echo 'environment configured'",
+        ])
+        try:
+            result = _run_remote_sh(node=remote, ssh=ssh, shell_script=configure_env, check=True)
+            print(f"  ✓ environment variables updated")
+        except RuntimeError as e:
+            print(f"[error] {node.name}: failed to configure environment")
+            print(str(e))
+            failures.append(node.name)
+            continue
+        
+        # Step 5: Restart service (reload plist to pick up new environment)
+        print(f"  → restarting ollama service (reloading plist)")
+        restart_service = "\n".join([
+            "set -e",
+            "USER_UID=$(id -u)",
+            "PL=\"$HOME/Library/LaunchAgents/homebrew.mxcl.ollama.plist\"",
+            "# Unload from launchd to pick up plist changes",
+            "launchctl bootout gui/$USER_UID/homebrew.mxcl.ollama 2>/dev/null || true",
+            "sleep 1",
+            "# Load with new environment",
+            "launchctl bootstrap gui/$USER_UID \"$PL\" 2>/dev/null || true",
+            "launchctl enable gui/$USER_UID/homebrew.mxcl.ollama 2>/dev/null || true",
+            "# Verify service loaded",
+            "if launchctl list | grep -q homebrew.mxcl.ollama; then",
+            "  echo 'service loaded'",
+            "else",
+            "  echo 'service failed to load'",
+            "  exit 1",
+            "fi",
+        ])
+        try:
+            result = _run_remote_sh(node=remote, ssh=ssh, shell_script=restart_service, check=True)
+            status = (result.stdout or "").strip()
+            print(f"  ✓ {status}")
+        except RuntimeError as e:
+            print(f"[error] {node.name}: failed to restart service")
+            print(str(e))
+            failures.append(node.name)
+            continue
+        
+        # Step 6: Wait and verify
+        print(f"  → waiting for service to start (5s)")
+        wait_verify = "\n".join([
+            "sleep 5",
+            f"curl -fsS --max-time 3 http://127.0.0.1:{port}/api/tags >/dev/null && echo 'http check: ok' || echo 'http check: failed'",
+            f"lsof -nP -iTCP:{port} -sTCP:LISTEN | grep -E 'TCP (\\*|0\\.0\\.0\\.0):{port} .*LISTEN' >/dev/null && echo 'bind check: external (0.0.0.0)' || echo 'bind check: failed or localhost-only'",
+        ])
+        try:
+            result = _run_remote_sh(node=remote, ssh=ssh, shell_script=wait_verify, check=False)
+            output = (result.stdout or "").strip()
+            for line in output.splitlines():
+                print(f"  {line}")
+            if "failed" in output.lower():
+                print(f"[error] {node.name}: verification failed")
+                failures.append(node.name)
+                continue
+            print(f"  ✓ ollama ready and accessible")
+        except RuntimeError as e:
+            print(f"[error] {node.name}: verification failed")
             print(str(e))
             failures.append(node.name)
             continue
