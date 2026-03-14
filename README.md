@@ -1,170 +1,88 @@
 # Thunder Forge
 
-Infrastructure/process layer for running **self-hosted AI capabilities** to follow **Shared Goals**.
+Cluster management CLI for a self-hosted MLX inference cluster: **4x Mac Studio M4 Max** (128 GB each) + **1x Radxa ROCK 5 ITX+** (ARM64 Linux, infrastructure hub).
 
-Thunder Forge focuses on operating the compute and automation stack that can work with **private data** (finance, healthcare, family/child privacy) without relying on third-party hosted agents.
+Thunder Forge manages model deployment, service orchestration, health monitoring, and configuration generation across the cluster from a single command-line tool running on the Radxa ROCK hub node.
 
-- GitHub org: https://github.com/shared-goals/
-- This repo: https://github.com/shared-goals/thunder-forge
+## Quick Start
 
-## Shared Goals (idea)
+```bash
+# Install dependencies
+uv sync
 
-A **personal image of Joy and Happiness** is treated as the base source of motives.
+# See available commands
+uv run thunder-forge --help
 
-Details (RU): [Shared Goals — use case and concept](https://text.sharedgoals.ru/ru/p2-180-sharedgoals/#use_case)
+# Generate LiteLLM proxy config from cluster definition
+uv run thunder-forge generate-config
 
-- A *motive* is a reason to act (rooted in what brings joy/happiness).
-- A *goal* is a direction or outcome shaped by one or more motives.
-- When goals are **shared among coauthors**, motives combine and the overall dynamics increase.
-
-## “Text” as a forkable source of goals
-
-Shared Goals is developed as a living **Text** that anyone can fork and rewrite into their own.
-
-- Concept Text (evolving): https://github.com/bongiozzo/whattodo
-- Common build submodule: https://github.com/shared-goals/text-forge
-
-`text-forge` transforms a Text repository into:
-
-- a website (with link-sharing functionality in the publishing format)
-- an EPUB book
-- a combined Markdown corpus suitable for AI usage (RAG/MCP agents and skills)
-
-## What Thunder Forge manages
-
-Thunder Forge is the infrastructure/process layer for **self-hosted execution** of agents and skills.
-
-Typical managed parts:
-
-- **Nodes**: machines in a self-hosted cluster (e.g., several Mac Studios)
-- **LLMs on nodes**: models served locally via Ollama (https://github.com/ollama/ollama)
-- **Assistants**: AI assistants for task execution and automation
-  - openclaw: https://github.com/openclaw/openclaw
-- **Skills**: reusable tool capabilities agents can invoke
-  - `github_repo` skills (agent skills): https://github.com/agentskills/agentskills
-
-> Note: assistants like openclaw and skills catalogs are intended integration points. This repo is the
-> operational “glue” and runbooks/specs layer to run them self-hosted.
-
-## Ecosystem map
-
-```mermaid
-flowchart LR
-  SG["Shared Goals<br/>joy/happiness -> motives"] --> G["Goals<br/>(shared among coauthors)"]
-
-  T["Text<br/>(forkable Markdown)"] --> TF["text-forge<br/>site + EPUB + combined corpus"]
-  TF --> K["AI-ready corpus<br/>(RAG/MCP input)"]
-
-  G --> A["Agents<br/>(plan and act)"]
-  K --> A
-
-  A --> S["Skills<br/>(callable capabilities)"]
-  S --> N["Self-hosted nodes<br/>(cluster machines)"]
-
-  N --> O["Local LLMs<br/>(Ollama)"]
-
-  W["Assistants<br/>(openclaw)"] --> A
-  W --> S
+# Check cluster health
+uv run thunder-forge health
 ```
 
-## Privacy & self-hosting principles
+## Commands
 
-Shared Goals activities can involve highly sensitive data.
+| Command            | Description                                                    |
+| ------------------ | -------------------------------------------------------------- |
+| `generate-config`  | Generate LiteLLM `proxy_config.yaml` from `configs/*.yml`      |
+| `ensure-models`    | Download/sync models to inference nodes via SSH                 |
+| `deploy`           | Deploy vllm-mlx services to inference nodes (launchd plist)    |
+| `health`           | Run health checks across all cluster nodes                     |
 
-- Prefer **self-hosted nodes** and **self-hosted agents** for private domains.
-- Keep data access **least-privilege** (skills should request only what they need).
-- Treat secrets and tokens as production-grade (no plaintext in repos).
-- Make agent activity auditable (logs, runs, and permissions).
+Use `uv run thunder-forge <command> --help` for detailed usage of each command.
 
-## Status
+### generate-config
 
-This repository is currently at an early scaffolding stage (see [LICENSE](LICENSE)).
+Reads `configs/cluster.yml` (node inventory) and `configs/models.yml` (model registry), then writes a LiteLLM-compatible `proxy_config.yaml`. Use `--check` to validate without writing.
 
-Near-term intended contents include:
+### ensure-models
 
-- node inventory/specs and bootstrap runbooks
-- model/LLM deployment conventions (Ollama-managed)
-- agent/workflow conventions (including openclaw assistant integration)
-- a skills registry format + examples
+Connects to each inference node via SSH and ensures the required models are downloaded. Compares the desired model set from `configs/models.yml` against what is already present on each node.
 
-## Localhost Mini App (restricted, no DB)
+### deploy
 
-This repo currently contains a minimal vertical slice:
+Generates macOS `launchd` plist files for vllm-mlx on each inference node, copies them over SSH, and starts the services. Handles graceful restart of running services.
 
-- `GET /health` (public)
-- `GET /mini-app/` (static Mini App)
-- `POST /api/mini-app/me` (Telegram initData auth + admin allowlist)
-- `POST /api/mini-app/status` (live reachability checks from inventory)
+### health
 
-### Quickstart (localhost)
+Probes all cluster nodes for SSH reachability, vllm-mlx service status, and model availability. Reports a summary table to the terminal.
 
-1. Create `tf.yml` (kept out of git; it’s ignored by default):
+## Node Bootstrap
 
-```yaml
-server:
-  bind: 127.0.0.1
-  port: 8000
-  reload: true
+New nodes can be set up with the bootstrap script:
 
-telegram:
-  bot_token: "..."
+```bash
+# On a Mac Studio (inference node)
+bash scripts/setup-node.sh inference
 
-access:
-  admin_telegram_ids:
-    - 123
-
-mini_app_url: http://127.0.0.1:8000/mini-app/
-
-settings:
-  ssh:
-    connect_timeout_seconds: 1.0
-    batch_mode: true
-  monitor:
-    ssh_port: 22
-    ollama_port: 11434
-  hosts_sync:
-    managed_block_start: "# BEGIN thunder-forge"
-    managed_block_end: "# END thunder-forge"
-
-nodes:
-  defaults:
-    ssh_user: you
-    service_manager: brew
-  items:
-    - name: msm1
-      mgmt_ip: 192.168.1.101
-
-fabricnet:
-  service_name: "Thunderbolt Bridge"
-  ipv4_defaults:
-    netmask: 255.255.255.252
-    router: ""
-  nodes:
-    - name: msm1
-      address: 172.16.10.2
+# On the Radxa ROCK (infrastructure hub)
+bash scripts/setup-node.sh infra
 ```
 
-2. Run:
+The `inference` role installs Homebrew, uv, and vllm-mlx, disables macOS sleep, and creates the logs directory. The `infra` role installs Docker, uv, clones this repo, generates secrets for the Docker Compose stack, starts the services, and generates an SSH key for connecting to inference nodes.
 
-  - `make sync`
-  - `make serve`
+## Configuration
 
-The server binds to `127.0.0.1:8000` by default.
+All cluster configuration lives in `configs/`:
 
-### Notes
+- `configs/cluster.yml` -- Node inventory (hostnames, IPs, roles, hardware specs)
+- `configs/models.yml` -- Model registry (which models on which nodes, memory budgets)
 
-- This is intentionally **restricted**: if your Telegram user ID is not listed in `tf.yml` (`access.admin_telegram_ids`), the Mini App API returns `403`.
-- No DB is used; all state is computed on-demand from `tf.yml`.
+See `configs/cluster.example.yml` and `configs/models.example.yml` for structure.
 
-## Fabric + hosts setup (script)
+## Infrastructure Stack (Docker)
 
-This repo includes a KISS setup script that uses `tf.yml` to:
+The Radxa ROCK hub runs these services via Docker Compose (`docker/`):
 
-- configure fabric network IPv4 on each node (via SSH + `networksetup` on macOS; typically "Thunderbolt Bridge")
-- generate a managed `/etc/hosts` block and push it to all nodes
+- **LiteLLM** -- OpenAI-compatible proxy that routes requests to inference nodes
+- **Open WebUI** -- Chat interface
+- **PostgreSQL** -- LiteLLM backend
+- **Grafana + Prometheus** -- Monitoring
 
-Commands:
+## CI/CD
 
-- `make setup-env` (configures fabric IPs; requires `fabricnet.nodes` entries)
-- `make hosts` (writes `artifacts/hosts.block`)
-- `make push-hosts` (writes `artifacts/hosts.block` and updates `/etc/hosts` on all nodes)
+Pushes to `main` that touch `configs/`, `src/thunder_forge/`, or `docker/` trigger the deploy workflow (`.github/workflows/deploy.yml`) on a self-hosted runner on the Radxa ROCK.
+
+## Design
+
+See the full design spec: [docs/specs/2026-03-14-thunder-forge-cluster-cli-design.md](docs/specs/2026-03-14-thunder-forge-cluster-cli-design.md)
