@@ -2,7 +2,6 @@
 
 from pathlib import Path
 from textwrap import dedent
-from unittest.mock import patch, MagicMock
 
 import pytest
 

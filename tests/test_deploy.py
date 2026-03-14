@@ -60,7 +60,7 @@ def test_generate_plist_basic(config_path: Path) -> None:
 def test_generate_plist_with_embedding(config_path: Path) -> None:
     config = load_cluster_config(config_path)
 
-    from thunder_forge.cluster.config import Model, ModelSource, Assignment
+    from thunder_forge.cluster.config import Assignment, Model, ModelSource
     config.models["embedding"] = Model(
         source=ModelSource(type="huggingface", repo="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"),
         disk_gb=0.5,

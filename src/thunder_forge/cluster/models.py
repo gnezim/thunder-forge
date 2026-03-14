@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass, field
 
 from thunder_forge.cluster.config import ClusterConfig
-from thunder_forge.cluster.ssh import ssh_run, run_local
+from thunder_forge.cluster.ssh import run_local, ssh_run
 
 
 @dataclass
@@ -194,5 +193,5 @@ def run_ensure_models(
             for err in errors:
                 print(f"  {err}")
         elif not dry_run:
-            print(f"  Done")
+            print("  Done")
     return all_ok

@@ -1,13 +1,12 @@
 """Tests for health check logic."""
 
-from unittest.mock import patch, MagicMock
 from pathlib import Path
 from textwrap import dedent
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from thunder_forge.cluster.config import load_cluster_config
-from thunder_forge.cluster.health import check_inference_node, check_docker_services
+from thunder_forge.cluster.health import check_inference_node
 
 
 @pytest.fixture()

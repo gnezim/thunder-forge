@@ -1,6 +1,5 @@
 """Thunder Forge CLI — cluster management commands."""
 
-from typing import Optional
 
 import typer
 
@@ -13,7 +12,9 @@ app = typer.Typer(
 
 @app.command()
 def generate_config(
-    check: bool = typer.Option(False, "--check", help="Compare generated config with committed file, exit 1 on mismatch."),
+    check: bool = typer.Option(
+        False, "--check", help="Compare generated config with committed file, exit 1 on mismatch."
+    ),
 ) -> None:
     """Generate litellm-config.yaml from node-assignments.yaml."""
     from thunder_forge.cluster.config import (
@@ -87,7 +88,7 @@ def ensure_models(
 
 @app.command()
 def deploy(
-    node: Optional[str] = typer.Option(None, "--node", help="Deploy to a single node (e.g. msm1)."),
+    node: str | None = typer.Option(None, "--node", help="Deploy to a single node (e.g. msm1)."),
 ) -> None:
     """Deploy models, plists, and configs to the cluster."""
     from thunder_forge.cluster.config import (

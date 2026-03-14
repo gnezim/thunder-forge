@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import subprocess
-import urllib.request
 import urllib.error
+import urllib.request
 
 from thunder_forge.cluster.config import ClusterConfig
 
