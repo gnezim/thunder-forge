@@ -16,8 +16,57 @@ def generate_config(
     check: bool = typer.Option(False, "--check", help="Compare generated config with committed file, exit 1 on mismatch."),
 ) -> None:
     """Generate litellm-config.yaml from node-assignments.yaml."""
-    typer.echo("generate-config: not implemented yet")
-    raise typer.Exit(1)
+    from thunder_forge.cluster.config import (
+        check_config_sync,
+        find_repo_root,
+        generate_litellm_config,
+        load_cluster_config,
+        validate_memory,
+    )
+
+    repo_root = find_repo_root()
+    assignments_path = repo_root / "configs" / "node-assignments.yaml"
+    config_path = repo_root / "configs" / "litellm-config.yaml"
+
+    if not assignments_path.exists():
+        typer.echo(f"Error: {assignments_path} not found", err=True)
+        raise typer.Exit(1)
+
+    config = load_cluster_config(assignments_path)
+
+    # Memory validation
+    typer.echo("Validating memory budgets...")
+    errors = validate_memory(config)
+    for node_name, slots in sorted(config.assignments.items()):
+        node = config.nodes[node_name]
+        parts = []
+        total = 8
+        for slot in slots:
+            model = config.models[slot.model]
+            weight = model.ram_gb if model.ram_gb is not None else model.disk_gb
+            kv = model.kv_per_32k_gb
+            total += weight + kv
+            parts.append(f"{slot.model}({weight}+{kv}kv)")
+        budget = " + ".join(parts) + f" + 8 OS = {total:.1f} GB / {node.ram_gb} GB"
+        status = "✅" if total <= node.ram_gb else "❌ EXCEEDS"
+        typer.echo(f"  {node_name}: {budget} {status}")
+
+    if errors:
+        for err in errors:
+            typer.echo(f"Error: {err}", err=True)
+        raise typer.Exit(1)
+
+    if check:
+        if check_config_sync(config, config_path):
+            typer.echo("✅ Config is in sync with assignments")
+            raise typer.Exit(0)
+        else:
+            typer.echo("❌ Config mismatch — run 'thunder-forge generate-config' to update", err=True)
+            raise typer.Exit(1)
+
+    content = generate_litellm_config(config)
+    config_path.write_text(content)
+    typer.echo(f"✅ Generated {config_path}")
 
 
 @app.command()
