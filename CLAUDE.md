@@ -72,6 +72,10 @@ tests/                      # pytest tests
 - Business logic in `src/thunder_forge/cluster/*.py`; CLI handlers in `cli.py` stay thin.
 - Use `ssh_run` / `scp_content` from `ssh.py` for all remote operations -- no raw `subprocess` SSH calls.
 
+## README.md
+
+- **Never delete or replace original content in README.md.** The README contains foundational project context (Shared Goals philosophy, ecosystem map, privacy principles, etc.) that predates the cluster CLI. When updating the README, add new sections or update existing ones -- do not rewrite the file from scratch.
+
 ## Git
 
 - Conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`
