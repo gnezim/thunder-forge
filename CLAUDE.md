@@ -4,85 +4,73 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-Infrastructure/process layer for running self-hosted AI capabilities (Ollama node cluster management) as part of the Shared Goals ecosystem. Currently a FastAPI backend + Telegram Mini App for cluster monitoring; an upcoming rewrite transitions to a Typer CLI for MLX inference cluster management (see `docs/plans/`).
+Typer CLI for managing a self-hosted MLX inference cluster. Handles model deployment, service orchestration (vllm-mlx via launchd), health monitoring, and LiteLLM proxy config generation across the cluster from a single command-line tool.
 
-**Cluster context:** The target cluster is 4× Mac Studio M4 Max (128GB) + 1× Radxa ROCK 5 ITX+ (32GB, ARM64 Linux) with LiteLLM proxy, Open WebUI, and Grafana monitoring. Detailed docs (topology, node setup, infra stack, model registry, benchmarks, runbooks) live in the Obsidian vault at `/Users/gnezim/_projects/gnezim/knowledge/projects/personal/inference-cluster/`.
+**Cluster context:** The target cluster is 4x Mac Studio M4 Max (128GB) + 1x Radxa ROCK 5 ITX+ (32GB, ARM64 Linux) with LiteLLM proxy, Open WebUI, and Grafana monitoring. Detailed docs (topology, node setup, infra stack, model registry, benchmarks, runbooks) live in the Obsidian vault at `/Users/gnezim/_projects/gnezim/knowledge/projects/personal/inference-cluster/`.
 
 ## Commands
 
 ```bash
-make sync              # Install/update deps (uv sync --extra dev)
-make serve             # Start FastAPI server (stops existing first)
-make stop              # Kill processes on PORT (default 8000)
-make test              # Run pytest
-make format            # Run ruff format
-make coverage          # Run tests with coverage
-make check-i18n        # Validate translations.json
+# Install dependencies
+uv sync
 
-# Single test
-uv run pytest tests/path/to/test_file.py::test_name -v
+# CLI commands
+uv run thunder-forge --help
+uv run thunder-forge generate-config      # Generate LiteLLM config from node-assignments.yaml
+uv run thunder-forge generate-config --check  # Validate config is in sync
+uv run thunder-forge ensure-models        # Download/sync models to inference nodes
+uv run thunder-forge deploy               # Deploy vllm-mlx services to nodes
+uv run thunder-forge deploy --node msm1   # Deploy to a single node
+uv run thunder-forge health               # Check cluster health
 
-# Infrastructure
-make setup-env         # Configure fabric IPs on nodes via SSH
-make fabricnet-check   # Check fabric reachability
-make ollama-ensure     # Install/configure/start Ollama on nodes
-make ollama-check      # Check Ollama status on nodes
-make local-hosts       # Update hub's /etc/hosts
+# Dev
+uv run pytest tests/ -v                   # Run tests
+uv run ruff check src/ tests/             # Lint
+uv run ruff format src/ tests/            # Format
 ```
 
-Always use `make` targets and `uv run` — never run `uvicorn`, `python`, or `pytest` directly.
+Always use `uv run` -- never run `python` or `pytest` directly.
 
 ## Architecture
 
-**Config-driven, no database.** All state is computed on-demand from `tf.yml` (gitignored; see `tf.example.yml` for structure).
+**Config-driven, stateless.** All state is computed on-demand from a single YAML source of truth: `configs/node-assignments.yaml`.
 
 ```
-src/
-├── api/                    # FastAPI routes
-│   ├── webhook.py          # App setup, /health, /webhook/telegram
-│   └── mini_app.py         # Mini App API (/me, /status)
-├── bot/app.py              # Telegram bot handlers (/start, /help)
-├── services/               # Business logic (thin handlers, fat services)
-│   ├── config_service.py   # YAML loading + Pydantic models (lru_cache)
-│   ├── auth_service.py     # Telegram initData HMAC verification
-│   ├── access_service.py   # Admin allowlist
-│   ├── monitor_service.py  # TCP reachability probes (SSH + Ollama ports)
-│   ├── fabricnet_service.py # macOS networksetup fabric IP config
-│   ├── ssh_service.py      # SSH command wrapper
-│   └── hosts_service.py    # /etc/hosts block generation
-├── static/mini_app/        # Vanilla JS frontend + translations.json
-├── thunder_forge/cli.py    # CLI entrypoint (serve, status subcommands)
-└── main.py                 # Uvicorn runner
+src/thunder_forge/
+├── cli.py                  # Typer CLI entrypoint (generate-config, ensure-models, deploy, health)
+└── cluster/
+    ├── config.py           # YAML loading + Pydantic models, LiteLLM config generation
+    ├── deploy.py           # Plist generation, SSH deploy, launchctl management
+    ├── health.py           # SSH reachability + vllm-mlx service health checks
+    ├── models.py           # Model download/sync to inference nodes
+    └── ssh.py              # Shared SSH/SCP helpers (ssh_run, scp_content, run_local)
 
-scripts/setup_env.py        # Cluster setup automation (fabricnet, hosts, ollama)
-tests/{unit,contract}/      # Test directories
+configs/
+├── node-assignments.yaml   # Node inventory + model assignments (gitignored)
+└── litellm-config.yaml     # Generated LiteLLM proxy config
+
+docker/
+└── docker-compose.yml      # LiteLLM, Open WebUI, PostgreSQL on the Radxa ROCK hub
+
+scripts/
+└── setup-node.sh           # Bootstrap script for new nodes (inference / infra roles)
+
+tests/                      # pytest tests
 ```
-
-**Auth flow:** Telegram initData → HMAC-SHA256 verification (`auth_service`) → admin allowlist check (`access_service`). All Mini App API endpoints enforce this.
-
-**Monitoring:** `monitor_service` does TCP socket probes to management and fabric IPs on SSH (22) and Ollama (11434) ports.
-
-**Fabric networking:** macOS-specific — configures Thunderbolt Bridge IPv4 via SSH + `networksetup`. Generates managed `/etc/hosts` blocks.
 
 ## Python & Tooling
 
-- **Python**: >=3.10 (plan targets >=3.12)
-- **Package manager**: `uv` exclusively — never use pip
-- **Linter/formatter**: `ruff` (plan config: line-length 120, rules `E, F, I, UP`)
-- **Tests**: `pytest` in `tests/{unit,contract}`
-- **Build**: setuptools (plan moves to hatchling)
-
-## Docker Services
-
-- `olla/compose.yaml` — Olla dashboard (port 40114)
-- `openwebui/compose.yml` — Open WebUI (port 8333), connects to Ollama nodes on fabric network
+- **Python**: >=3.12
+- **Package manager**: `uv` exclusively -- never use pip
+- **Linter/formatter**: `ruff` (line-length 120, rules `E, F, I, UP`)
+- **Tests**: `pytest`
+- **Build**: hatchling
 
 ## Conventions
 
 - DRY/KISS/YAGNI. Follow repo conventions exactly; don't guess.
-- Business logic in `src/services/*_service.py`; handlers/endpoints stay thin.
-- i18n single source of truth: `src/static/mini_app/translations.json`. Run `make check-i18n` after string changes.
-- Auth is centralized in `auth_service.py` — endpoints call `get_authenticated_user()`.
+- Business logic in `src/thunder_forge/cluster/*.py`; CLI handlers in `cli.py` stay thin.
+- Use `ssh_run` / `scp_content` from `ssh.py` for all remote operations -- no raw `subprocess` SSH calls.
 
 ## Git
 

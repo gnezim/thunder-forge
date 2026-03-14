@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 import xml.etree.ElementTree as ET
 
 from thunder_forge.cluster.config import Assignment, ClusterConfig, Model, Node
@@ -148,21 +147,8 @@ def deploy_node(
         deployed_ports.add(slot.port)
 
     newsyslog = NEWSYSLOG_CONF.format(user=node.user)
-    subprocess.run(
-        [
-            "ssh",
-            "-o",
-            "ConnectTimeout=5",
-            "-o",
-            "StrictHostKeyChecking=no",
-            f"{node.user}@{node.ip}",
-            "sudo tee /etc/newsyslog.d/vllm-mlx.conf > /dev/null",
-        ],
-        input=newsyslog,
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
+    scp_content(node.user, node.ip, newsyslog, "/tmp/vllm-mlx-newsyslog.conf")
+    ssh_run(node.user, node.ip, "sudo mv /tmp/vllm-mlx-newsyslog.conf /etc/newsyslog.d/vllm-mlx.conf")
 
     ls_result = ssh_run(node.user, node.ip, "ls ~/Library/LaunchAgents/com.vllm-mlx-*.plist 2>/dev/null || true")
     if ls_result.stdout.strip():

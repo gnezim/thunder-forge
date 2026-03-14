@@ -33,11 +33,11 @@ Use `uv run thunder-forge <command> --help` for detailed usage of each command.
 
 ### generate-config
 
-Reads `configs/cluster.yml` (node inventory) and `configs/models.yml` (model registry), then writes a LiteLLM-compatible `proxy_config.yaml`. Use `--check` to validate without writing.
+Reads `configs/node-assignments.yaml` (node inventory and model registry), then writes a LiteLLM-compatible `configs/litellm-config.yaml`. Use `--check` to validate without writing.
 
 ### ensure-models
 
-Connects to each inference node via SSH and ensures the required models are downloaded. Compares the desired model set from `configs/models.yml` against what is already present on each node.
+Connects to each inference node via SSH and ensures the required models are downloaded. Compares the desired model set from `configs/node-assignments.yaml` against what is already present on each node.
 
 ### deploy
 
@@ -65,10 +65,9 @@ The `inference` role installs Homebrew, uv, and vllm-mlx, disables macOS sleep, 
 
 All cluster configuration lives in `configs/`:
 
-- `configs/cluster.yml` -- Node inventory (hostnames, IPs, roles, hardware specs)
-- `configs/models.yml` -- Model registry (which models on which nodes, memory budgets)
+- `configs/node-assignments.yaml` -- Node inventory and model assignments (hostnames, IPs, roles, hardware specs, which models on which nodes, memory budgets)
 
-See `configs/cluster.example.yml` and `configs/models.example.yml` for structure.
+The `generate-config` command produces `configs/litellm-config.yaml` from the assignments file.
 
 ## Infrastructure Stack (Docker)
 
@@ -77,7 +76,6 @@ The Radxa ROCK hub runs these services via Docker Compose (`docker/`):
 - **LiteLLM** -- OpenAI-compatible proxy that routes requests to inference nodes
 - **Open WebUI** -- Chat interface
 - **PostgreSQL** -- LiteLLM backend
-- **Grafana + Prometheus** -- Monitoring
 
 ## CI/CD
 
