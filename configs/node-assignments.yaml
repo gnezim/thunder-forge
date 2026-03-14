@@ -1,0 +1,38 @@
+# ── Model registry ──────────────────────────────────
+# Add new models here. They become available for assignment.
+models:
+  coder:
+    source:
+      type: huggingface
+      repo: "mlx-community/Qwen3-Coder-Next-4bit"
+      revision: "main"
+    disk_gb: 44.8
+    kv_per_32k_gb: 8
+    active_params: "3B of 80B"
+    max_context: 131072
+    notes: "70%+ SWE-Bench ≈ Sonnet"
+
+# ── Nodes ──────────────────────────────────────────
+nodes:
+  rock: { ip: "192.168.1.61", ram_gb: 32, user: "admin", role: infra }
+  msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
+  msm2: { ip: "192.168.1.102", ram_gb: 128, user: "admin", role: inference }
+  msm3: { ip: "192.168.1.103", ram_gb: 128, user: "admin", role: inference }
+  msm4: { ip: "192.168.1.104", ram_gb: 128, user: "admin", role: inference }
+
+# ── Node assignments ────────────────────────────────
+# Each node gets a list of {model, port} pairs.
+# One vllm-mlx process per entry.
+assignments:
+  msm1:
+    - model: coder
+      port: 8000
+  msm2:
+    - model: coder
+      port: 8000
+  msm3:
+    - model: coder
+      port: 8000
+  msm4:
+    - model: coder
+      port: 8000
