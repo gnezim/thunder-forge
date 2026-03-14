@@ -90,8 +90,37 @@ def deploy(
     node: Optional[str] = typer.Option(None, "--node", help="Deploy to a single node (e.g. msm1)."),
 ) -> None:
     """Deploy models, plists, and configs to the cluster."""
-    typer.echo("deploy: not implemented yet")
-    raise typer.Exit(1)
+    from thunder_forge.cluster.config import (
+        find_repo_root,
+        generate_litellm_config,
+        load_cluster_config,
+        validate_memory,
+    )
+    from thunder_forge.cluster.deploy import run_deploy
+    from thunder_forge.cluster.models import run_ensure_models
+
+    repo_root = find_repo_root()
+    assignments_path = repo_root / "configs" / "node-assignments.yaml"
+    config_path = repo_root / "configs" / "litellm-config.yaml"
+    config = load_cluster_config(assignments_path)
+
+    typer.echo("Ensuring models are present...")
+    if not run_ensure_models(config, target_node=node):
+        typer.echo("Model sync failed", err=True)
+        raise typer.Exit(1)
+
+    typer.echo("\nGenerating config...")
+    errors = validate_memory(config)
+    if errors:
+        for err in errors:
+            typer.echo(f"Error: {err}", err=True)
+        raise typer.Exit(1)
+    content = generate_litellm_config(config)
+    config_path.write_text(content)
+    typer.echo(f"  Generated {config_path}")
+
+    success = run_deploy(config, target_node=node)
+    raise typer.Exit(0 if success else 1)
 
 
 @app.command()
