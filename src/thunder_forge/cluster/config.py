@@ -118,3 +118,31 @@ def load_cluster_config(path: Path) -> ClusterConfig:
         ]
 
     return ClusterConfig(models=models, nodes=nodes, assignments=assignments)
+
+
+OS_OVERHEAD_GB = 8
+
+
+def validate_memory(config: ClusterConfig) -> list[str]:
+    errors: list[str] = []
+    for node_name, slots in config.assignments.items():
+        node = config.nodes.get(node_name)
+        if node is None:
+            errors.append(f"{node_name}: node not found in config")
+            continue
+        parts: list[str] = []
+        total = OS_OVERHEAD_GB
+        for slot in slots:
+            model = config.models.get(slot.model)
+            if model is None:
+                errors.append(f"{node_name}: model '{slot.model}' not found in registry")
+                continue
+            weight_gb = model.ram_gb if model.ram_gb is not None else model.disk_gb
+            kv_gb = model.kv_per_32k_gb
+            slot_total = weight_gb + kv_gb
+            total += slot_total
+            parts.append(f"{slot.model}({weight_gb}+{kv_gb}kv)")
+        budget_str = " + ".join(parts) + f" + {OS_OVERHEAD_GB} OS = {total:.1f} GB / {node.ram_gb} GB"
+        if total > node.ram_gb:
+            errors.append(f"{node_name}: {budget_str} ❌ EXCEEDS")
+    return errors
