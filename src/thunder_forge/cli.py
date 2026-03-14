@@ -90,5 +90,12 @@ def deploy(
 @app.command()
 def health() -> None:
     """Check health of all cluster services."""
-    typer.echo("health: not implemented yet")
-    raise typer.Exit(1)
+    from thunder_forge.cluster.config import find_repo_root, load_cluster_config
+    from thunder_forge.cluster.health import run_health_checks
+
+    repo_root = find_repo_root()
+    assignments_path = repo_root / "configs" / "node-assignments.yaml"
+    config = load_cluster_config(assignments_path)
+
+    all_healthy = run_health_checks(config)
+    raise typer.Exit(0 if all_healthy else 1)
