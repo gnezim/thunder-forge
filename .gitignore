@@ -17,5 +17,8 @@ dist/
 build/
 logs/
 
+# Worktrees
+.worktrees/
+
 # OS
 .DS_Store
