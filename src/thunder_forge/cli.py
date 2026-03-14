@@ -74,8 +74,15 @@ def ensure_models(
     dry_run: bool = typer.Option(False, "--dry-run", help="Print what would be downloaded without doing it."),
 ) -> None:
     """Download and sync models to assigned inference nodes."""
-    typer.echo("ensure-models: not implemented yet")
-    raise typer.Exit(1)
+    from thunder_forge.cluster.config import find_repo_root, load_cluster_config
+    from thunder_forge.cluster.models import run_ensure_models
+
+    repo_root = find_repo_root()
+    assignments_path = repo_root / "configs" / "node-assignments.yaml"
+    config = load_cluster_config(assignments_path)
+
+    success = run_ensure_models(config, dry_run=dry_run)
+    raise typer.Exit(0 if success else 1)
 
 
 @app.command()
