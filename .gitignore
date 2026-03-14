@@ -1,24 +1,27 @@
-# Single local config file
-tf.yml
-
-# Generated artifacts
-artifacts/
+# Secrets
+docker/.env
 
 # Python
-.coverage
 .venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 *.egg-info/
-.dist/
 dist/
 build/
-logs/
+.coverage
 
-# Worktrees
-.worktrees/
+# Logs
+*.log
+*.err
 
 # OS
 .DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Worktrees
+.worktrees/
