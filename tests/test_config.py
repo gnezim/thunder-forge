@@ -7,7 +7,7 @@ import pytest
 
 import yaml as yaml_lib
 
-from thunder_forge.cluster.config import generate_litellm_config, load_cluster_config, validate_memory
+from thunder_forge.cluster.config import check_config_sync, generate_litellm_config, load_cluster_config, validate_memory
 
 
 @pytest.fixture()
@@ -242,3 +242,18 @@ def test_generate_litellm_config_skips_cli_serving(tmp_path: Path) -> None:
     result = generate_litellm_config(config)
     parsed = yaml_lib.safe_load(result)
     assert len(parsed["model_list"]) == 0
+
+
+def test_check_config_sync_matches(assignments_yaml: Path, tmp_path: Path) -> None:
+    config = load_cluster_config(assignments_yaml)
+    generated = generate_litellm_config(config)
+    committed = tmp_path / "litellm-config.yaml"
+    committed.write_text(generated)
+    assert check_config_sync(config, committed) is True
+
+
+def test_check_config_sync_mismatch(assignments_yaml: Path, tmp_path: Path) -> None:
+    config = load_cluster_config(assignments_yaml)
+    committed = tmp_path / "litellm-config.yaml"
+    committed.write_text("stale content")
+    assert check_config_sync(config, committed) is False

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -206,3 +207,28 @@ def generate_litellm_config(config: ClusterConfig) -> str:
         "# Do not edit manually — edit node-assignments.yaml instead.\n\n"
     )
     return header + yaml.dump(output, default_flow_style=False, sort_keys=False)
+
+
+def find_repo_root() -> Path:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True,
+        )
+        return Path(result.stdout.strip())
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    current = Path.cwd()
+    for parent in [current, *current.parents]:
+        if (parent / "configs" / "node-assignments.yaml").exists():
+            return parent
+    msg = "Cannot find repo root (no git repo and no configs/node-assignments.yaml found)"
+    raise FileNotFoundError(msg)
+
+
+def check_config_sync(config: ClusterConfig, committed_path: Path) -> bool:
+    generated = generate_litellm_config(config)
+    if not committed_path.exists():
+        return False
+    committed = committed_path.read_text()
+    return generated == committed
