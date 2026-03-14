@@ -5,7 +5,9 @@ from textwrap import dedent
 
 import pytest
 
-from thunder_forge.cluster.config import load_cluster_config, validate_memory
+import yaml as yaml_lib
+
+from thunder_forge.cluster.config import generate_litellm_config, load_cluster_config, validate_memory
 
 
 @pytest.fixture()
@@ -149,3 +151,94 @@ def test_validate_memory_uses_ram_gb_override(tmp_path: Path) -> None:
     config = load_cluster_config(p)
     errors = validate_memory(config)
     assert errors == []
+
+
+def test_generate_litellm_config_basic(assignments_yaml: Path) -> None:
+    config = load_cluster_config(assignments_yaml)
+    result = generate_litellm_config(config)
+    parsed = yaml_lib.safe_load(result)
+    assert result.startswith("# AUTO-GENERATED")
+    assert len(parsed["model_list"]) == 1
+    entry = parsed["model_list"][0]
+    assert entry["model_name"] == "coder"
+    assert entry["litellm_params"]["model"] == "hosted_vllm/mlx-community/Qwen3-Coder-Next-4bit"
+    assert entry["litellm_params"]["api_base"] == "http://192.168.1.101:8000/v1"
+    assert entry["litellm_params"]["api_key"] == "none"
+    assert entry["litellm_params"]["max_input_tokens"] == 131072
+    assert entry["litellm_params"]["max_output_tokens"] == 16384
+    assert parsed["litellm_settings"]["callbacks"] == ["prometheus"]
+    assert parsed["router_settings"]["routing_strategy"] == "least-busy"
+    assert parsed["general_settings"]["master_key"] == "os.environ/LITELLM_MASTER_KEY"
+
+
+def test_generate_litellm_config_multi_node(multi_model_yaml: Path) -> None:
+    config = load_cluster_config(multi_model_yaml)
+    result = generate_litellm_config(config)
+    parsed = yaml_lib.safe_load(result)
+    assert len(parsed["model_list"]) == 2
+    names = {e["model_name"] for e in parsed["model_list"]}
+    assert names == {"coder", "general"}
+
+
+def test_generate_litellm_config_embedding_slot(tmp_path: Path) -> None:
+    content = dedent("""\
+        models:
+          coder:
+            source: { type: huggingface, repo: "test/coder" }
+            disk_gb: 44.8
+            kv_per_32k_gb: 8
+            max_context: 131072
+          embedding:
+            source: { type: huggingface, repo: "test/embedding-model" }
+            disk_gb: 0.5
+            serving: embedding
+
+        nodes:
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "admin", role: infra }
+
+        assignments:
+          msm1:
+            - model: coder
+              port: 8000
+              embedding: true
+    """)
+    p = tmp_path / "node-assignments.yaml"
+    p.write_text(content)
+    config = load_cluster_config(p)
+    result = generate_litellm_config(config)
+    parsed = yaml_lib.safe_load(result)
+    assert len(parsed["model_list"]) == 2
+    names = [e["model_name"] for e in parsed["model_list"]]
+    assert "coder" in names
+    assert "embedding" in names
+    emb_entry = next(e for e in parsed["model_list"] if e["model_name"] == "embedding")
+    assert emb_entry["litellm_params"]["model"] == "openai/test/embedding-model"
+    assert emb_entry["litellm_params"]["api_base"] == "http://192.168.1.101:8000/v1"
+
+
+def test_generate_litellm_config_skips_cli_serving(tmp_path: Path) -> None:
+    content = dedent("""\
+        models:
+          video:
+            source: { type: pip, package: "mlx-video" }
+            disk_gb: 5
+            ram_gb: 20
+            max_context: 0
+            serving: cli
+
+        nodes:
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "admin", role: infra }
+
+        assignments:
+          msm1:
+            - model: video
+              port: 8000
+    """)
+    p = tmp_path / "node-assignments.yaml"
+    p.write_text(content)
+    config = load_cluster_config(p)
+    result = generate_litellm_config(config)
+    parsed = yaml_lib.safe_load(result)
+    assert len(parsed["model_list"]) == 0
