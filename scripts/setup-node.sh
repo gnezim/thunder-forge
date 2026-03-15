@@ -6,11 +6,13 @@ set -euo pipefail
 #   bash setup-node.sh inference   # Mac Studio inference node
 #   bash setup-node.sh infra       # Radxa ROCK infrastructure node
 #
-# All paths are configurable via environment variables:
+# All paths are configurable via environment variables or a .env file:
 #   TF_DIR          — thunder-forge clone location      (default: ~/thunder-forge)
 #   TF_LOG_DIR      — inference node log directory      (default: ~/logs)
 #   TF_SSH_KEY      — SSH key path                      (default: ~/.ssh/id_ed25519)
 #   TF_REPO_URL     — git clone URL                     (default: https://github.com/shared-goals/thunder-forge.git)
+#
+# Place a .env file next to this script or at ~/.thunder-forge.env
 
 ROLE="${1:-}"
 
@@ -18,6 +20,21 @@ if [[ -z "$ROLE" ]]; then
     echo "Usage: $0 <inference|infra>"
     exit 1
 fi
+
+# ── Load .env (script-local first, then home dir) ─────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for envfile in "$SCRIPT_DIR/.env" "$HOME/.thunder-forge.env"; do
+    if [[ -f "$envfile" ]]; then
+        # Source only lines matching KEY=VALUE, skip comments and blanks.
+        # Existing env vars take precedence (won't overwrite).
+        while IFS='=' read -r key value; do
+            [[ -z "$key" || "$key" == \#* ]] && continue
+            value="${value%\"}" && value="${value#\"}"  # strip quotes
+            export "${key}=${!key:-$value}"
+        done < "$envfile"
+        echo "Loaded config from $envfile"
+    fi
+done
 
 # ── Configurable paths ────────────────────────────────
 TF_DIR="${TF_DIR:-$HOME/thunder-forge}"
