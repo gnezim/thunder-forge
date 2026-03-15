@@ -101,12 +101,16 @@ def load_cluster_config(path: Path) -> ClusterConfig:
 
     nodes = {}
     for k, v in raw.get("nodes", {}).items():
-        nodes[k] = Node(
-            ip=v["ip"],
-            ram_gb=v["ram_gb"],
-            user=v.get("user") or os.environ.get("TF_SSH_USER") or "admin",
-            role=v.get("role", "inference"),
-        )
+        role = v.get("role", "inference")
+        if v.get("user"):
+            user = v["user"]
+        elif os.environ.get("TF_SSH_USER"):
+            user = os.environ["TF_SSH_USER"]
+        elif role == "infra":
+            user = os.getlogin()
+        else:
+            user = "admin"
+        nodes[k] = Node(ip=v["ip"], ram_gb=v["ram_gb"], user=user, role=role)
 
     assignments: dict[str, list[Assignment]] = {}
     for node_name, slots in raw.get("assignments", {}).items():

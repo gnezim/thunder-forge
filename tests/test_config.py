@@ -57,14 +57,17 @@ def test_load_cluster_config(assignments_yaml: Path) -> None:
     assert config.assignments["msm1"][0].port == 8000
 
 
-def test_load_cluster_config_user_defaults_to_admin(tmp_path: Path) -> None:
-    """When no user is specified in YAML, falls back to 'admin'."""
+def test_load_cluster_config_user_defaults(tmp_path: Path) -> None:
+    """Inference defaults to 'admin', infra defaults to current OS user."""
+    import os
+
     content = dedent("""\
         models:
           coder:
             source: { type: huggingface, repo: "test/coder" }
             disk_gb: 10
         nodes:
+          rock: { ip: "192.168.1.61", ram_gb: 32, role: infra }
           msm1: { ip: "192.168.1.101", ram_gb: 128, role: inference }
         assignments:
           msm1:
@@ -75,6 +78,7 @@ def test_load_cluster_config_user_defaults_to_admin(tmp_path: Path) -> None:
     p.write_text(content)
     config = load_cluster_config(p)
     assert config.nodes["msm1"].user == "admin"
+    assert config.nodes["rock"].user == os.getlogin()
 
 
 def test_load_cluster_config_user_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
