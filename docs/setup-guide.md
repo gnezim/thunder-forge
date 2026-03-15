@@ -35,11 +35,21 @@ bash scripts/setup-node.sh infra
 
 This will:
 - Install Docker Engine and `uv`
+- Install `huggingface-cli` (for model downloads)
+- Check HuggingFace auth (warns if not logged in)
+- Check proxy env vars (warns if `HTTP_PROXY`/`HTTPS_PROXY` not set)
 - Clone thunder-forge (if not already cloned)
 - Install Python dependencies (`uv sync`)
 - Generate `docker/.env` with random secrets (LiteLLM master key, Postgres password, WebUI credentials)
 - Start Docker Compose (LiteLLM, Open WebUI, PostgreSQL)
 - Generate an SSH keypair at `~/.ssh/id_ed25519`
+
+**Before running**, ensure your proxy is configured if outbound internet is filtered:
+
+```bash
+export HTTP_PROXY=http://your-proxy:port
+export HTTPS_PROXY=http://your-proxy:port
+```
 
 **Save the generated credentials** from `~/thunder-forge/docker/.env` — you'll need the WebUI password to log in.
 

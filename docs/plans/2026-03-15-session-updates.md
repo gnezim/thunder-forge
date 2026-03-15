@@ -109,6 +109,36 @@ Tasks completed during this session, covering model registry sync, setup script 
 
 ---
 
+## Task 7: Download pip model weights on rock, rsync to nodes
+
+**Commits:** `877b6c7`
+
+**Problem:** `ensure_pip` ran `huggingface-cli download` directly on inference nodes, requiring `huggingface-cli` to be installed there.
+
+**Changes:**
+- [x] Refactor `ensure_pip` to download weights on rock first, then rsync to target nodes
+- [x] Inference nodes no longer need `huggingface-cli`
+
+**Files:** `src/thunder_forge/cluster/models.py`
+
+---
+
+## Task 8: Add HuggingFace CLI, auth, and proxy checks to infra setup
+
+**Commits:** (this commit)
+
+**Problem:** Setup script didn't install `huggingface-cli`, verify HF auth, or check that proxy env vars are set (required for outbound access through firewall).
+
+**Changes:**
+- [x] Install `huggingface-cli` via `uv tool install huggingface_hub[cli]` on rock
+- [x] Warn if `huggingface-cli whoami` fails (not authenticated)
+- [x] Warn if `HTTP_PROXY`/`HTTPS_PROXY` not set
+- [x] Update `docs/setup-guide.md` with new steps and proxy note
+
+**Files:** `scripts/setup-node.sh`, `docs/setup-guide.md`
+
+---
+
 ## Other commits (not from this session)
 
 - `dd659cf` — `.env` added to `.gitignore` (pushed externally between our commits)

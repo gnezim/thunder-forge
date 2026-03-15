@@ -123,7 +123,30 @@ setup_infra() {
         echo "uv already installed"
     fi
 
-    # 3. Clone thunder-forge
+    # 3. huggingface-cli
+    if ! command -v huggingface-cli &>/dev/null; then
+        echo "Installing huggingface-cli..."
+        uv tool install "huggingface_hub[cli]"
+    else
+        echo "huggingface-cli already installed"
+    fi
+
+    # 4. Check HuggingFace auth
+    if huggingface-cli whoami &>/dev/null; then
+        echo "HuggingFace auth: $(huggingface-cli whoami 2>/dev/null | head -1)"
+    else
+        echo "WARNING: HuggingFace not authenticated. Gated models will fail to download."
+        echo "  Run: huggingface-cli login"
+    fi
+
+    # 5. Check proxy env vars
+    if [[ -z "${HTTP_PROXY:-}" && -z "${HTTPS_PROXY:-}" ]]; then
+        echo "WARNING: HTTP_PROXY/HTTPS_PROXY not set. Outbound downloads may fail."
+    else
+        echo "Proxy: ${HTTPS_PROXY:-${HTTP_PROXY}}"
+    fi
+
+    # 6. Clone thunder-forge
     if [[ ! -d "$TF_DIR" ]]; then
         echo "Cloning thunder-forge..."
         git clone "$TF_REPO_URL" "$TF_DIR"
@@ -132,12 +155,12 @@ setup_infra() {
         cd "$TF_DIR" && git pull
     fi
 
-    # 4. Install dependencies
+    # 7. Install dependencies
     cd "$TF_DIR"
     echo "Installing Python dependencies..."
     uv sync
 
-    # 5. Generate docker/.env with random secrets
+    # 8. Generate docker/.env with random secrets
     if [[ ! -f "$TF_DIR/docker/.env" ]]; then
         echo "Generating docker/.env with random secrets..."
         cat > "$TF_DIR/docker/.env" <<ENVEOF
@@ -154,12 +177,12 @@ ENVEOF
         echo "docker/.env already exists"
     fi
 
-    # 6. Start Docker Compose
+    # 9. Start Docker Compose
     echo "Starting Docker Compose stack..."
     cd "$TF_DIR/docker"
     docker compose up -d
 
-    # 7. Generate SSH key
+    # 10. Generate SSH key
     if [[ ! -f "$TF_SSH_KEY" ]]; then
         echo "Generating SSH key..."
         ssh-keygen -t ed25519 -f "$TF_SSH_KEY" -N ""
@@ -169,9 +192,10 @@ ENVEOF
 
     echo ""
     echo "=== Infra node setup complete ==="
-    echo "  Docker:  $(docker --version)"
-    echo "  uv:      $(uv --version)"
-    echo "  Compose: running (check: docker compose ps)"
+    echo "  Docker:       $(docker --version)"
+    echo "  uv:           $(uv --version)"
+    echo "  huggingface:  $(huggingface-cli --version 2>/dev/null || echo 'not installed')"
+    echo "  Compose:      running (check: docker compose ps)"
     echo ""
     echo "Next steps:"
     echo "  1. Copy SSH public key to inference nodes:"
