@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,7 +37,7 @@ class Model:
 class Node:
     ip: str
     ram_gb: int
-    user: str = "admin"
+    user: str = ""
     role: str = "inference"
 
 
@@ -103,7 +104,7 @@ def load_cluster_config(path: Path) -> ClusterConfig:
         nodes[k] = Node(
             ip=v["ip"],
             ram_gb=v["ram_gb"],
-            user=v.get("user", "admin"),
+            user=v.get("user") or os.environ.get("TF_SSH_USER") or os.getlogin(),
             role=v.get("role", "inference"),
         )
 

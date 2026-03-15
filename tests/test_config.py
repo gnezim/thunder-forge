@@ -1,5 +1,6 @@
 """Tests for config parsing, validation, and generation."""
 
+import os
 from pathlib import Path
 from textwrap import dedent
 
@@ -55,6 +56,47 @@ def test_load_cluster_config(assignments_yaml: Path) -> None:
     assert len(config.assignments["msm1"]) == 1
     assert config.assignments["msm1"][0].model == "coder"
     assert config.assignments["msm1"][0].port == 8000
+
+
+def test_load_cluster_config_user_defaults_to_current(tmp_path: Path) -> None:
+    """When no user is specified in YAML, falls back to current OS user."""
+    content = dedent("""\
+        models:
+          coder:
+            source: { type: huggingface, repo: "test/coder" }
+            disk_gb: 10
+        nodes:
+          msm1: { ip: "192.168.1.101", ram_gb: 128, role: inference }
+        assignments:
+          msm1:
+            - model: coder
+              port: 8000
+    """)
+    p = tmp_path / "node-assignments.yaml"
+    p.write_text(content)
+    config = load_cluster_config(p)
+    assert config.nodes["msm1"].user == os.getlogin()
+
+
+def test_load_cluster_config_user_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """TF_SSH_USER env var overrides default when no YAML user is set."""
+    content = dedent("""\
+        models:
+          coder:
+            source: { type: huggingface, repo: "test/coder" }
+            disk_gb: 10
+        nodes:
+          msm1: { ip: "192.168.1.101", ram_gb: 128, role: inference }
+        assignments:
+          msm1:
+            - model: coder
+              port: 8000
+    """)
+    p = tmp_path / "node-assignments.yaml"
+    p.write_text(content)
+    monkeypatch.setenv("TF_SSH_USER", "deploy_bot")
+    config = load_cluster_config(p)
+    assert config.nodes["msm1"].user == "deploy_bot"
 
 
 def test_validate_memory_single_model_passes(assignments_yaml: Path) -> None:

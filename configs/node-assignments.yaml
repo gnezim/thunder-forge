@@ -80,12 +80,13 @@ models:
     notes: "LTX-2 distilled (FP16). ~20 GB RAM. Experimental."
 
 # ── Nodes ──────────────────────────────────────────
+# Per-node user is optional. Falls back to TF_SSH_USER env var, then current OS user.
 nodes:
   rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
-  msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
-  msm2: { ip: "192.168.1.102", ram_gb: 128, user: "admin", role: inference }
-  msm3: { ip: "192.168.1.103", ram_gb: 128, user: "admin", role: inference }
-  msm4: { ip: "192.168.1.104", ram_gb: 128, user: "admin", role: inference }
+  msm1: { ip: "192.168.1.101", ram_gb: 128, role: inference }
+  msm2: { ip: "192.168.1.102", ram_gb: 128, role: inference }
+  msm3: { ip: "192.168.1.103", ram_gb: 128, role: inference }
+  msm4: { ip: "192.168.1.104", ram_gb: 128, role: inference }
 
 # ── Node assignments ────────────────────────────────
 # Each node gets a list of {model, port} pairs.
