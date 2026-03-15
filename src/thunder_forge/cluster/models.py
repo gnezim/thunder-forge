@@ -69,7 +69,7 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
     print(f"  Downloading {task.repo} on rock...")
     hf_env = f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
     dl_cmd = f"{hf_env} hf download {task.repo} --revision {task.revision}"
-    result = ssh_run(rock.user, rock.ip, dl_cmd, timeout=600, stream=True)
+    result = ssh_run(rock.user, rock.ip, dl_cmd, timeout=3600, stream=True)
     if result.returncode != 0:
         errors.append(f"Download failed for {task.repo}: {(result.stderr or '').strip()}")
         return errors
@@ -88,7 +88,7 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
         rsync_result = run_local(
             ["rsync", "-az", "--progress", "-e", "ssh -o StrictHostKeyChecking=no",
              src_path, dest_path],
-            timeout=600,
+            timeout=3600,
         )
         if rsync_result.returncode != 0:
             errors.append(f"Rsync to {node_name} failed: {(rsync_result.stderr or '').strip()}")
@@ -103,7 +103,7 @@ def ensure_convert(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fa
         return errors
     print(f"  Downloading source {task.repo} on rock...")
     hf_env = f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
-    dl_result = ssh_run(rock.user, rock.ip, f"{hf_env} hf download {task.repo}", timeout=600, stream=True)
+    dl_result = ssh_run(rock.user, rock.ip, f"{hf_env} hf download {task.repo}", timeout=3600, stream=True)
     if dl_result.returncode != 0:
         errors.append(f"Download failed for {task.repo}: {(dl_result.stderr or '').strip()}")
         return errors
@@ -134,7 +134,7 @@ def ensure_convert(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fa
         dest = f"{node.user}@{node.ip}:{output_dir}"
         rsync_result = run_local(
             ["rsync", "-az", "-e", "ssh -o StrictHostKeyChecking=no", src, dest],
-            timeout=600,
+            timeout=3600,
         )
         if rsync_result.returncode != 0:
             errors.append(f"Rsync to {node_name} failed: {(rsync_result.stderr or '').strip()}")
@@ -165,7 +165,7 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
             print(f"  Downloading weights {task.weight_repo} on rock...")
             hf_env = f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
             dl_cmd = f"{hf_env} hf download {task.weight_repo}"
-            dl_result = ssh_run(rock.user, rock.ip, dl_cmd, timeout=600, stream=True)
+            dl_result = ssh_run(rock.user, rock.ip, dl_cmd, timeout=3600, stream=True)
             if dl_result.returncode != 0:
                 errors.append(f"Weight download failed for {task.weight_repo}: {(dl_result.stderr or '').strip()}")
                 return errors
@@ -200,7 +200,7 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
             rsync_result = run_local(
                 ["rsync", "-az", "--progress", "-e", "ssh -o StrictHostKeyChecking=no",
                  src_path, dest_path],
-                timeout=600,
+                timeout=3600,
             )
             if rsync_result.returncode != 0:
                 errors.append(f"{node_name}: weight rsync failed: {(rsync_result.stderr or '').strip()}")
