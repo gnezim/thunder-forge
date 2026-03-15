@@ -150,10 +150,23 @@ def ensure_local(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fals
 
 def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False) -> list[str]:
     errors: list[str] = []
+    rock = config.rock
+    # Download weights on rock first, then rsync to nodes (same pattern as HF models)
+    if task.weight_repo:
+        if dry_run:
+            print(f"  [dry-run] Would download weights {task.weight_repo} on rock")
+        else:
+            print(f"  Downloading weights {task.weight_repo} on rock...")
+            dl_result = ssh_run(rock.user, rock.ip, f"huggingface-cli download {task.weight_repo}", timeout=600)
+            if dl_result.returncode != 0:
+                errors.append(f"Weight download failed for {task.weight_repo}: {dl_result.stderr.strip()}")
+                return errors
     for node_name in task.target_nodes:
         node = config.nodes[node_name]
         if dry_run:
             print(f"  [dry-run] Would install {task.package} on {node_name}")
+            if task.weight_repo:
+                print(f"  [dry-run] Would rsync weights {task.weight_repo} to {node_name}")
             continue
         check = ssh_run(node.user, node.ip, f"uv tool list 2>/dev/null | grep -q {task.package}")
         if check.returncode == 0:
@@ -164,10 +177,25 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
             if result.returncode != 0:
                 errors.append(f"{node_name}: install of {task.package} failed: {result.stderr.strip()}")
         if task.weight_repo:
-            print(f"  Pre-downloading weights {task.weight_repo} on {node_name}...")
-            dl_result = ssh_run(node.user, node.ip, f"huggingface-cli download {task.weight_repo}", timeout=600)
-            if dl_result.returncode != 0:
-                errors.append(f"{node_name}: weight download failed: {dl_result.stderr.strip()}")
+            hf_cache_path = task.weight_repo.replace("/", "--")
+            cache_dir = f"~/.cache/huggingface/hub/models--{hf_cache_path}/snapshots"
+            check_cached = ssh_run(node.user, node.ip, f"test -d {cache_dir}")
+            if check_cached.returncode == 0:
+                print(f"  Weights {task.weight_repo} already cached on {node_name}")
+                continue
+            if _is_local(rock.ip):
+                src_path = f"~/.cache/huggingface/hub/models--{hf_cache_path}/"
+            else:
+                src_path = f"{rock.user}@{rock.ip}:~/.cache/huggingface/hub/models--{hf_cache_path}/"
+            dest_path = f"{node.user}@{node.ip}:~/.cache/huggingface/hub/models--{hf_cache_path}/"
+            print(f"  Syncing weights {task.weight_repo} to {node_name}...")
+            rsync_result = run_local(
+                ["rsync", "-az", "--progress", "-e", "ssh -o StrictHostKeyChecking=no",
+                 src_path, dest_path],
+                timeout=600,
+            )
+            if rsync_result.returncode != 0:
+                errors.append(f"{node_name}: weight rsync failed: {rsync_result.stderr.strip()}")
     return errors
 
 
