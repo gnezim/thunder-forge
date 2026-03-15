@@ -71,7 +71,7 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
     dl_cmd = f"{hf_env} hf download {task.repo} --revision {task.revision}"
     result = ssh_run(rock.user, rock.ip, dl_cmd, timeout=600, stream=True)
     if result.returncode != 0:
-        errors.append(f"Download failed for {task.repo}: {result.stderr.strip()}")
+        errors.append(f"Download failed for {task.repo}: {(result.stderr or '').strip()}")
         return errors
     hf_cache_path = task.repo.replace("/", "--")
     if _is_local(rock.ip):
@@ -91,7 +91,7 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
             timeout=600,
         )
         if rsync_result.returncode != 0:
-            errors.append(f"Rsync to {node_name} failed: {rsync_result.stderr.strip()}")
+            errors.append(f"Rsync to {node_name} failed: {(rsync_result.stderr or '').strip()}")
     return errors
 
 
@@ -105,7 +105,7 @@ def ensure_convert(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fa
     hf_env = f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
     dl_result = ssh_run(rock.user, rock.ip, f"{hf_env} hf download {task.repo}", timeout=600, stream=True)
     if dl_result.returncode != 0:
-        errors.append(f"Download failed for {task.repo}: {dl_result.stderr.strip()}")
+        errors.append(f"Download failed for {task.repo}: {(dl_result.stderr or '').strip()}")
         return errors
     convert_node_name = task.target_nodes[0]
     convert_node = config.nodes[convert_node_name]
@@ -121,7 +121,7 @@ def ensure_convert(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fa
         )
         conv_result = ssh_run(convert_node.user, convert_node.ip, convert_cmd, timeout=1800)
         if conv_result.returncode != 0:
-            errors.append(f"Conversion failed on {convert_node_name}: {conv_result.stderr.strip()}")
+            errors.append(f"Conversion failed on {convert_node_name}: {(conv_result.stderr or '').strip()}")
             return errors
     for node_name in task.target_nodes[1:]:
         node = config.nodes[node_name]
@@ -137,7 +137,7 @@ def ensure_convert(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fa
             timeout=600,
         )
         if rsync_result.returncode != 0:
-            errors.append(f"Rsync to {node_name} failed: {rsync_result.stderr.strip()}")
+            errors.append(f"Rsync to {node_name} failed: {(rsync_result.stderr or '').strip()}")
     return errors
 
 
@@ -167,7 +167,7 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
             dl_cmd = f"{hf_env} hf download {task.weight_repo}"
             dl_result = ssh_run(rock.user, rock.ip, dl_cmd, timeout=600, stream=True)
             if dl_result.returncode != 0:
-                errors.append(f"Weight download failed for {task.weight_repo}: {dl_result.stderr.strip()}")
+                errors.append(f"Weight download failed for {task.weight_repo}: {(dl_result.stderr or '').strip()}")
                 return errors
     for node_name in task.target_nodes:
         node = config.nodes[node_name]
@@ -183,7 +183,7 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
             print(f"  Installing {task.package} on {node_name}...")
             result = ssh_run(node.user, node.ip, f"uv tool install {task.package}", timeout=120)
             if result.returncode != 0:
-                errors.append(f"{node_name}: install of {task.package} failed: {result.stderr.strip()}")
+                errors.append(f"{node_name}: install of {task.package} failed: {(result.stderr or '').strip()}")
         if task.weight_repo:
             hf_cache_path = task.weight_repo.replace("/", "--")
             cache_dir = f"{HF_CACHE}/models--{hf_cache_path}/snapshots"
@@ -203,7 +203,7 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
                 timeout=600,
             )
             if rsync_result.returncode != 0:
-                errors.append(f"{node_name}: weight rsync failed: {rsync_result.stderr.strip()}")
+                errors.append(f"{node_name}: weight rsync failed: {(rsync_result.stderr or '').strip()}")
     return errors
 
 

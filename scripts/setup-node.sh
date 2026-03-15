@@ -131,7 +131,7 @@ setup_infra() {
     # 3. hf (HuggingFace CLI)
     if ! command -v hf &>/dev/null; then
         echo "Installing HuggingFace CLI (hf)..."
-        uv tool install huggingface_hub --with socksio
+        uv tool install --force huggingface_hub --with socksio
     else
         echo "HuggingFace CLI (hf) already installed"
     fi
