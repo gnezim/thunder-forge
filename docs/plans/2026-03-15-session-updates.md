@@ -75,6 +75,24 @@ Tasks completed during this session, covering model registry sync, setup script 
 
 ---
 
+## Task 5: Make SSH user configurable with role-based defaults
+
+**Commits:** `9794eb6`, `57256af`, `3e49264`
+
+**Problem:** SSH user was hardcoded per-node in YAML. Needed to be configurable via env var with sensible defaults that differ by node role.
+
+**Changes:**
+- [x] User resolution: YAML `user` field > `TF_SSH_USER` env var > role-based default
+- [x] Infra nodes (rock) default to current OS user (`os.getlogin()`)
+- [x] Inference nodes default to `"admin"`
+- [x] Remove explicit user from `node-assignments.yaml` (defaults apply)
+- [x] Add tests for default user resolution and env var override
+- [x] Sync knowledge vault docs (model-registry node section, specs, runbooks)
+
+**Files:** `src/thunder_forge/cluster/config.py`, `configs/node-assignments.yaml`, `tests/test_config.py`
+
+---
+
 ## Other commits (not from this session)
 
 - `dd659cf` — `.env` added to `.gitignore` (pushed externally between our commits)

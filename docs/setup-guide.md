@@ -17,7 +17,7 @@ End-to-end guide for deploying the MLX inference cluster.
 ## Prerequisites
 
 - All nodes on the same LAN (192.168.1.0/24)
-- SSH access to each node (`admin` on inference nodes, `infra_user` on rock)
+- SSH access to each node (`admin` on inference nodes; on rock, the current OS user is used by default)
 - macOS on inference nodes, Linux on rock
 
 ## Step 1: Bootstrap the Infrastructure Node (rock)
@@ -64,6 +64,7 @@ EOF
 | `TF_DIR` | `~/thunder-forge` | Clone location |
 | `TF_LOG_DIR` | `~/logs` | Log directory (inference nodes) |
 | `TF_SSH_KEY` | `~/.ssh/id_ed25519` | SSH key path |
+| `TF_SSH_USER` | `admin` (inference) / current user (infra) | SSH user for node connections |
 | `TF_REPO_URL` | `https://github.com/shared-goals/thunder-forge.git` | Git clone URL |
 
 ## Step 2: Bootstrap Inference Nodes (msm1–msm4)
