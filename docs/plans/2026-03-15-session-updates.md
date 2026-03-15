@@ -1,6 +1,6 @@
 # Session Updates — 2026-03-15
 
-Tasks completed during this session, covering model registry sync, setup script improvements, documentation, and config corrections.
+Tasks completed during this session, covering model registry sync, setup script improvements, documentation, config corrections, and deployment fixes.
 
 ---
 
@@ -35,6 +35,7 @@ Tasks completed during this session, covering model registry sync, setup script 
 - [x] Add `.env` file loading (checks `scripts/.env` then `~/.thunder-forge.env`)
 - [x] Env vars take precedence over `.env` file values
 - [x] Document all configurable variables in script header
+- [x] Expand `~` to `$HOME` in .env-sourced paths (tilde is literal in non-interactive reads)
 
 **Files:** `scripts/setup-node.sh`
 
@@ -87,7 +88,6 @@ Tasks completed during this session, covering model registry sync, setup script 
 - [x] Inference nodes default to `"admin"`
 - [x] Remove explicit user from `node-assignments.yaml` (defaults apply)
 - [x] Add tests for default user resolution and env var override
-- [x] Sync knowledge vault docs (model-registry node section, specs, runbooks)
 
 **Files:** `src/thunder_forge/cluster/config.py`, `configs/node-assignments.yaml`, `tests/test_config.py`
 
@@ -95,13 +95,13 @@ Tasks completed during this session, covering model registry sync, setup script 
 
 ## Task 6: Skip SSH when target is the local machine
 
-**Commits:** `0c4aa14`
+**Commits:** `0c4aa14`, `4974086`
 
 **Problem:** Running `thunder-forge ensure-models` from rock prompted for a password because the CLI was SSHing from rock to rock (itself) to download models.
 
 **Changes:**
-- [x] Add `_is_local(ip)` helper to `ssh.py` — checks if target IP belongs to current host
-- [x] `ssh_run` runs commands locally via `bash -c` when target is local
+- [x] Add `_is_local(ip)` helper to `ssh.py` — uses socket bind to reliably detect local IPs
+- [x] `ssh_run` runs commands locally via `bash -lc` (login shell for PATH) when target is local
 - [x] `scp_content` writes directly when target is local
 - [x] `ensure_huggingface` uses local rsync source path when rock is local
 
@@ -117,7 +117,7 @@ Tasks completed during this session, covering model registry sync, setup script 
 
 **Changes:**
 - [x] Refactor `ensure_pip` to download weights on rock first, then rsync to target nodes
-- [x] Inference nodes no longer need `huggingface-cli`
+- [x] Inference nodes no longer need `huggingface-cli` or outbound internet access
 
 **Files:** `src/thunder_forge/cluster/models.py`
 
@@ -125,17 +125,36 @@ Tasks completed during this session, covering model registry sync, setup script 
 
 ## Task 8: Add HuggingFace CLI, auth, and proxy checks to infra setup
 
-**Commits:** (this commit)
+**Commits:** `e463c6c`, `f8ce58b`, `bf23b38`, `1a485ee`, `1e74a28`
 
-**Problem:** Setup script didn't install `huggingface-cli`, verify HF auth, or check that proxy env vars are set (required for outbound access through firewall).
+**Problem:** Setup script didn't install the HF CLI, verify HF auth, or check that proxy env vars are set (required for outbound access through firewall).
 
 **Changes:**
-- [x] Install `huggingface-cli` via `uv tool install huggingface_hub[cli]` on rock
-- [x] Warn if `huggingface-cli whoami` fails (not authenticated)
+- [x] Install `hf` CLI via `uv tool install huggingface_hub` on rock
+- [x] Warn if `hf auth whoami` fails (not authenticated)
 - [x] Warn if `HTTP_PROXY`/`HTTPS_PROXY` not set
+- [x] Use `hf` (modern CLI) instead of deprecated `huggingface-cli`
+- [x] Create SSH key parent dir before keygen, skip if key already exists
 - [x] Update `docs/setup-guide.md` with new steps and proxy note
 
 **Files:** `scripts/setup-node.sh`, `docs/setup-guide.md`
+
+---
+
+## Task 9: Fix SOCKS proxy and HF download issues
+
+**Commits:** `27f1979`, `b775596`
+
+**Problem:** `hf download` failed because `httpx` picked up `ALL_PROXY` (SOCKS) over `HTTPS_PROXY` (HTTP). Also, download progress was invisible since output was captured.
+
+**Changes:**
+- [x] Prefix `hf` commands with `ALL_PROXY=` to force HTTP proxy usage
+- [x] Add `stream` option to `ssh_run` — downloads now show progress in terminal
+- [x] Support `HF_HOME` env var for custom cache location (rock has limited main disk)
+- [x] Pass `HF_HOME` to all `hf download` commands
+- [x] Replace hardcoded `~/.cache/huggingface/hub` with configurable `HF_CACHE`
+
+**Files:** `src/thunder_forge/cluster/ssh.py`, `src/thunder_forge/cluster/models.py`, `scripts/setup-node.sh`
 
 ---
 
