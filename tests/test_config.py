@@ -1,6 +1,5 @@
 """Tests for config parsing, validation, and generation."""
 
-import os
 from pathlib import Path
 from textwrap import dedent
 
@@ -58,8 +57,8 @@ def test_load_cluster_config(assignments_yaml: Path) -> None:
     assert config.assignments["msm1"][0].port == 8000
 
 
-def test_load_cluster_config_user_defaults_to_current(tmp_path: Path) -> None:
-    """When no user is specified in YAML, falls back to current OS user."""
+def test_load_cluster_config_user_defaults_to_admin(tmp_path: Path) -> None:
+    """When no user is specified in YAML, falls back to 'admin'."""
     content = dedent("""\
         models:
           coder:
@@ -75,7 +74,7 @@ def test_load_cluster_config_user_defaults_to_current(tmp_path: Path) -> None:
     p = tmp_path / "node-assignments.yaml"
     p.write_text(content)
     config = load_cluster_config(p)
-    assert config.nodes["msm1"].user == os.getlogin()
+    assert config.nodes["msm1"].user == "admin"
 
 
 def test_load_cluster_config_user_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

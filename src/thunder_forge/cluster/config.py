@@ -104,7 +104,7 @@ def load_cluster_config(path: Path) -> ClusterConfig:
         nodes[k] = Node(
             ip=v["ip"],
             ram_gb=v["ram_gb"],
-            user=v.get("user") or os.environ.get("TF_SSH_USER") or os.getlogin(),
+            user=v.get("user") or os.environ.get("TF_SSH_USER") or "admin",
             role=v.get("role", "inference"),
         )
 
