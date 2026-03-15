@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from thunder_forge.cluster.config import ClusterConfig
-from thunder_forge.cluster.ssh import run_local, ssh_run
+from thunder_forge.cluster.ssh import _is_local, run_local, ssh_run
 
 
 @dataclass
@@ -69,7 +69,10 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
         errors.append(f"Download failed for {task.repo}: {result.stderr.strip()}")
         return errors
     hf_cache_path = task.repo.replace("/", "--")
-    src_path = f"{rock.user}@{rock.ip}:~/.cache/huggingface/hub/models--{hf_cache_path}/"
+    if _is_local(rock.ip):
+        src_path = f"~/.cache/huggingface/hub/models--{hf_cache_path}/"
+    else:
+        src_path = f"{rock.user}@{rock.ip}:~/.cache/huggingface/hub/models--{hf_cache_path}/"
     for node_name in task.target_nodes:
         node = config.nodes[node_name]
         if _check_hf_cached(node.user, node.ip, task.repo):
