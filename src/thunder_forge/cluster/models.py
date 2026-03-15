@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 
 from thunder_forge.cluster.config import ClusterConfig
 from thunder_forge.cluster.ssh import _is_local, run_local, ssh_run
+
+# HF cache dir, respects HF_HOME env var (same as huggingface_hub library)
+HF_CACHE = os.environ.get("HF_HOME", "~/.cache/huggingface") + "/hub"
 
 
 @dataclass
@@ -50,7 +54,7 @@ def resolve_model_tasks(
 
 def _check_hf_cached(user: str, ip: str, repo: str) -> bool:
     hf_path = repo.replace("/", "--")
-    result = ssh_run(user, ip, f"test -d ~/.cache/huggingface/hub/models--{hf_path}/snapshots")
+    result = ssh_run(user, ip, f"test -d {HF_CACHE}/models--{hf_path}/snapshots")
     return result.returncode == 0
 
 
@@ -63,22 +67,23 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
             print(f"  [dry-run] Would rsync to {node_name}")
         return errors
     print(f"  Downloading {task.repo} on rock...")
-    dl_cmd = f"ALL_PROXY= hf download {task.repo} --revision {task.revision}"
-    result = ssh_run(rock.user, rock.ip, dl_cmd, timeout=600)
+    hf_env = f"ALL_PROXY= HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
+    dl_cmd = f"{hf_env} hf download {task.repo} --revision {task.revision}"
+    result = ssh_run(rock.user, rock.ip, dl_cmd, timeout=600, stream=True)
     if result.returncode != 0:
         errors.append(f"Download failed for {task.repo}: {result.stderr.strip()}")
         return errors
     hf_cache_path = task.repo.replace("/", "--")
     if _is_local(rock.ip):
-        src_path = f"~/.cache/huggingface/hub/models--{hf_cache_path}/"
+        src_path = f"{HF_CACHE}/models--{hf_cache_path}/"
     else:
-        src_path = f"{rock.user}@{rock.ip}:~/.cache/huggingface/hub/models--{hf_cache_path}/"
+        src_path = f"{rock.user}@{rock.ip}:{HF_CACHE}/models--{hf_cache_path}/"
     for node_name in task.target_nodes:
         node = config.nodes[node_name]
         if _check_hf_cached(node.user, node.ip, task.repo):
             print(f"  {task.model_name} already cached on {node_name}")
             continue
-        dest_path = f"{node.user}@{node.ip}:~/.cache/huggingface/hub/models--{hf_cache_path}/"
+        dest_path = f"{node.user}@{node.ip}:{HF_CACHE}/models--{hf_cache_path}/"
         print(f"  Syncing {task.model_name} to {node_name}...")
         rsync_result = run_local(
             ["rsync", "-az", "--progress", "-e", "ssh -o StrictHostKeyChecking=no",
@@ -97,7 +102,8 @@ def ensure_convert(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fa
         print(f"  [dry-run] Would download {task.repo}, convert (q={task.quantize}), sync to {task.target_nodes}")
         return errors
     print(f"  Downloading source {task.repo} on rock...")
-    dl_result = ssh_run(rock.user, rock.ip, f"ALL_PROXY= hf download {task.repo}", timeout=600)
+    hf_env = f"ALL_PROXY= HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
+    dl_result = ssh_run(rock.user, rock.ip, f"{hf_env} hf download {task.repo}", timeout=600, stream=True)
     if dl_result.returncode != 0:
         errors.append(f"Download failed for {task.repo}: {dl_result.stderr.strip()}")
         return errors
@@ -157,7 +163,9 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
             print(f"  [dry-run] Would download weights {task.weight_repo} on rock")
         else:
             print(f"  Downloading weights {task.weight_repo} on rock...")
-            dl_result = ssh_run(rock.user, rock.ip, f"ALL_PROXY= hf download {task.weight_repo}", timeout=600)
+            hf_env = f"ALL_PROXY= HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
+            dl_cmd = f"{hf_env} hf download {task.weight_repo}"
+            dl_result = ssh_run(rock.user, rock.ip, dl_cmd, timeout=600, stream=True)
             if dl_result.returncode != 0:
                 errors.append(f"Weight download failed for {task.weight_repo}: {dl_result.stderr.strip()}")
                 return errors
@@ -178,16 +186,16 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
                 errors.append(f"{node_name}: install of {task.package} failed: {result.stderr.strip()}")
         if task.weight_repo:
             hf_cache_path = task.weight_repo.replace("/", "--")
-            cache_dir = f"~/.cache/huggingface/hub/models--{hf_cache_path}/snapshots"
+            cache_dir = f"{HF_CACHE}/models--{hf_cache_path}/snapshots"
             check_cached = ssh_run(node.user, node.ip, f"test -d {cache_dir}")
             if check_cached.returncode == 0:
                 print(f"  Weights {task.weight_repo} already cached on {node_name}")
                 continue
             if _is_local(rock.ip):
-                src_path = f"~/.cache/huggingface/hub/models--{hf_cache_path}/"
+                src_path = f"{HF_CACHE}/models--{hf_cache_path}/"
             else:
-                src_path = f"{rock.user}@{rock.ip}:~/.cache/huggingface/hub/models--{hf_cache_path}/"
-            dest_path = f"{node.user}@{node.ip}:~/.cache/huggingface/hub/models--{hf_cache_path}/"
+                src_path = f"{rock.user}@{rock.ip}:{HF_CACHE}/models--{hf_cache_path}/"
+            dest_path = f"{node.user}@{node.ip}:{HF_CACHE}/models--{hf_cache_path}/"
             print(f"  Syncing weights {task.weight_repo} to {node_name}...")
             rsync_result = run_local(
                 ["rsync", "-az", "--progress", "-e", "ssh -o StrictHostKeyChecking=no",

@@ -11,6 +11,7 @@ set -euo pipefail
 #   TF_LOG_DIR      — inference node log directory      (default: ~/logs)
 #   TF_SSH_KEY      — SSH key path                      (default: ~/.ssh/id_ed25519)
 #   TF_REPO_URL     — git clone URL                     (default: https://github.com/shared-goals/thunder-forge.git)
+#   HF_HOME         — HuggingFace cache directory       (default: ~/.cache/huggingface)
 #
 # Place a .env file next to this script or at ~/.thunder-forge.env
 

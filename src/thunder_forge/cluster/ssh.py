@@ -25,17 +25,19 @@ def ssh_run(
     cmd: str,
     *,
     timeout: int = 30,
+    stream: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run a command on a remote node via SSH, or locally if the target is this machine."""
+    capture = not stream
     if _is_local(ip):
         return subprocess.run(
             ["bash", "-lc", cmd],
-            capture_output=True, text=True, timeout=timeout,
+            capture_output=capture, text=True, timeout=timeout,
         )
     return subprocess.run(
         ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no",
          f"{user}@{ip}", cmd],
-        capture_output=True, text=True, timeout=timeout,
+        capture_output=capture, text=True, timeout=timeout,
     )
 
 
