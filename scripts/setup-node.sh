@@ -5,6 +5,12 @@ set -euo pipefail
 # Usage:
 #   bash setup-node.sh inference   # Mac Studio inference node
 #   bash setup-node.sh infra       # Radxa ROCK infrastructure node
+#
+# All paths are configurable via environment variables:
+#   TF_DIR          — thunder-forge clone location      (default: ~/thunder-forge)
+#   TF_LOG_DIR      — inference node log directory      (default: ~/logs)
+#   TF_SSH_KEY      — SSH key path                      (default: ~/.ssh/id_ed25519)
+#   TF_REPO_URL     — git clone URL                     (default: https://github.com/shared-goals/thunder-forge.git)
 
 ROLE="${1:-}"
 
@@ -13,8 +19,15 @@ if [[ -z "$ROLE" ]]; then
     exit 1
 fi
 
+# ── Configurable paths ────────────────────────────────
+TF_DIR="${TF_DIR:-$HOME/thunder-forge}"
+TF_LOG_DIR="${TF_LOG_DIR:-$HOME/logs}"
+TF_SSH_KEY="${TF_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+TF_REPO_URL="${TF_REPO_URL:-https://github.com/shared-goals/thunder-forge.git}"
+
 echo "=== Thunder Forge Node Bootstrap ==="
 echo "Role: $ROLE"
+echo "TF_DIR=$TF_DIR"
 echo ""
 
 setup_inference() {
@@ -54,14 +67,14 @@ setup_inference() {
     sudo pmset -a sleep 0 displaysleep 0 disksleep 0
 
     # 5. Create logs directory
-    mkdir -p ~/logs
+    mkdir -p "$TF_LOG_DIR"
 
     echo ""
     echo "=== Inference node setup complete ==="
     echo "  Homebrew: $(brew --version | head -1)"
     echo "  uv:       $(uv --version)"
     echo "  vllm-mlx: $(vllm-mlx --version 2>/dev/null || echo 'installed')"
-    echo "  Logs:     ~/logs"
+    echo "  Logs:     $TF_LOG_DIR"
     echo ""
     echo "Next steps:"
     echo "  1. Ensure SSH key from rock is in ~/.ssh/authorized_keys"
@@ -99,23 +112,23 @@ setup_infra() {
     fi
 
     # 3. Clone thunder-forge
-    if [[ ! -d ~/thunder-forge ]]; then
+    if [[ ! -d "$TF_DIR" ]]; then
         echo "Cloning thunder-forge..."
-        git clone https://github.com/shared-goals/thunder-forge.git ~/thunder-forge
+        git clone "$TF_REPO_URL" "$TF_DIR"
     else
         echo "thunder-forge already cloned"
-        cd ~/thunder-forge && git pull
+        cd "$TF_DIR" && git pull
     fi
 
     # 4. Install dependencies
-    cd ~/thunder-forge
+    cd "$TF_DIR"
     echo "Installing Python dependencies..."
     uv sync
 
     # 5. Generate docker/.env with random secrets
-    if [[ ! -f ~/thunder-forge/docker/.env ]]; then
+    if [[ ! -f "$TF_DIR/docker/.env" ]]; then
         echo "Generating docker/.env with random secrets..."
-        cat > ~/thunder-forge/docker/.env <<ENVEOF
+        cat > "$TF_DIR/docker/.env" <<ENVEOF
 LITELLM_MASTER_KEY=sk-$(openssl rand -hex 16)
 POSTGRES_PASSWORD=$(openssl rand -hex 16)
 UI_USERNAME=admin
@@ -124,20 +137,20 @@ WEBUI_SECRET_KEY=$(openssl rand -hex 16)
 WEBUI_AUTH=true
 ENABLE_SIGNUP=true
 ENVEOF
-        echo "  Save these credentials! See ~/thunder-forge/docker/.env"
+        echo "  Save these credentials! See $TF_DIR/docker/.env"
     else
         echo "docker/.env already exists"
     fi
 
     # 6. Start Docker Compose
     echo "Starting Docker Compose stack..."
-    cd ~/thunder-forge/docker
+    cd "$TF_DIR/docker"
     docker compose up -d
 
     # 7. Generate SSH key
-    if [[ ! -f ~/.ssh/id_ed25519 ]]; then
+    if [[ ! -f "$TF_SSH_KEY" ]]; then
         echo "Generating SSH key..."
-        ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ""
+        ssh-keygen -t ed25519 -f "$TF_SSH_KEY" -N ""
     else
         echo "SSH key already exists"
     fi
@@ -151,7 +164,7 @@ ENVEOF
     echo "Next steps:"
     echo "  1. Copy SSH public key to inference nodes:"
     echo "     for ip in 192.168.1.{101,102,103,104}; do"
-    echo "       ssh-copy-id -i ~/.ssh/id_ed25519 admin@\$ip"
+    echo "       ssh-copy-id -i $TF_SSH_KEY admin@\$ip"
     echo "     done"
     echo "  2. Run: uv run thunder-forge ensure-models"
     echo "  3. Run: uv run thunder-forge deploy"
