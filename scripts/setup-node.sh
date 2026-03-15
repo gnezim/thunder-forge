@@ -136,8 +136,8 @@ setup_infra() {
     fi
     # Ensure SOCKS proxy support if using a SOCKS proxy
     if [[ "${HTTPS_PROXY:-${HTTP_PROXY:-}}" == socks* ]]; then
-        echo "SOCKS proxy detected, installing socksio..."
-        uv tool install --upgrade huggingface_hub --with "httpx[socks]"
+        echo "SOCKS proxy detected, reinstalling hf with SOCKS support..."
+        uv tool install --force huggingface_hub --with socksio
     fi
 
     # 4. Check HuggingFace auth
