@@ -51,6 +51,12 @@ export HTTP_PROXY=http://your-proxy:port
 export HTTPS_PROXY=http://your-proxy:port
 ```
 
+After setup, authenticate with HuggingFace (required for gated models):
+
+```bash
+hf auth login
+```
+
 **Save the generated credentials** from `~/thunder-forge/docker/.env` — you'll need the WebUI password to log in.
 
 ### Custom paths
@@ -76,6 +82,7 @@ EOF
 | `TF_SSH_KEY` | `~/.ssh/id_ed25519` | SSH key path |
 | `TF_SSH_USER` | `admin` (inference) / current user (infra) | SSH user for node connections |
 | `TF_REPO_URL` | `https://github.com/shared-goals/thunder-forge.git` | Git clone URL |
+| `HF_HOME` | `~/.cache/huggingface` | HuggingFace cache directory (set to external drive if main disk is small) |
 
 ## Step 2: Bootstrap Inference Nodes (msm1–msm4)
 
@@ -162,7 +169,13 @@ cd ~/thunder-forge
 uv run thunder-forge ensure-models
 ```
 
-This downloads models from HuggingFace and syncs them to the assigned inference nodes via rsync. First run can take 30+ minutes depending on model sizes and network speed.
+This downloads models from HuggingFace on rock and syncs them to the assigned inference nodes via rsync. Large models (e.g. coder at 44.8 GB) can take 20+ minutes to download. Progress is shown in the terminal. Downloads are resumable — if interrupted, re-running picks up where it left off.
+
+If rock has limited disk space on the main drive, set `HF_HOME` to an external drive:
+
+```bash
+export HF_HOME=/mnt/external/.cache/huggingface
+```
 
 Preview without downloading:
 
