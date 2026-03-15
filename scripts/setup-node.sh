@@ -134,11 +134,6 @@ setup_infra() {
     else
         echo "HuggingFace CLI (hf) already installed"
     fi
-    # Ensure SOCKS proxy support if using a SOCKS proxy
-    if [[ "${HTTPS_PROXY:-${HTTP_PROXY:-}}" == socks* ]]; then
-        echo "SOCKS proxy detected, reinstalling hf with SOCKS support..."
-        uv tool install --force huggingface_hub --with socksio
-    fi
 
     # 4. Check HuggingFace auth
     if command -v hf &>/dev/null && hf auth whoami &>/dev/null; then
