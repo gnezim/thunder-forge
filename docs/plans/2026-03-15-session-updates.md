@@ -93,6 +93,22 @@ Tasks completed during this session, covering model registry sync, setup script 
 
 ---
 
+## Task 6: Skip SSH when target is the local machine
+
+**Commits:** `0c4aa14`
+
+**Problem:** Running `thunder-forge ensure-models` from rock prompted for a password because the CLI was SSHing from rock to rock (itself) to download models.
+
+**Changes:**
+- [x] Add `_is_local(ip)` helper to `ssh.py` — checks if target IP belongs to current host
+- [x] `ssh_run` runs commands locally via `bash -c` when target is local
+- [x] `scp_content` writes directly when target is local
+- [x] `ensure_huggingface` uses local rsync source path when rock is local
+
+**Files:** `src/thunder_forge/cluster/ssh.py`, `src/thunder_forge/cluster/models.py`
+
+---
+
 ## Other commits (not from this session)
 
 - `dd659cf` — `.env` added to `.gitignore` (pushed externally between our commits)
