@@ -37,9 +37,13 @@ for envfile in "$SCRIPT_DIR/.env" "$HOME/.thunder-forge.env"; do
 done
 
 # ── Configurable paths ────────────────────────────────
+# Expand ~ to $HOME (tilde doesn't expand when read from .env files)
 TF_DIR="${TF_DIR:-$HOME/thunder-forge}"
+TF_DIR="${TF_DIR/#\~/$HOME}"
 TF_LOG_DIR="${TF_LOG_DIR:-$HOME/logs}"
+TF_LOG_DIR="${TF_LOG_DIR/#\~/$HOME}"
 TF_SSH_KEY="${TF_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+TF_SSH_KEY="${TF_SSH_KEY/#\~/$HOME}"
 TF_REPO_URL="${TF_REPO_URL:-https://github.com/shared-goals/thunder-forge.git}"
 
 echo "=== Thunder Forge Node Bootstrap ==="
@@ -123,20 +127,20 @@ setup_infra() {
         echo "uv already installed"
     fi
 
-    # 3. huggingface-cli
-    if ! command -v huggingface-cli &>/dev/null; then
-        echo "Installing huggingface-cli..."
-        uv tool install "huggingface_hub[cli]"
+    # 3. hf (HuggingFace CLI)
+    if ! command -v hf &>/dev/null; then
+        echo "Installing HuggingFace CLI (hf)..."
+        uv tool install huggingface_hub
     else
-        echo "huggingface-cli already installed"
+        echo "HuggingFace CLI (hf) already installed"
     fi
 
     # 4. Check HuggingFace auth
-    if huggingface-cli whoami &>/dev/null; then
-        echo "HuggingFace auth: $(huggingface-cli whoami 2>/dev/null | head -1)"
+    if command -v hf &>/dev/null && hf auth whoami &>/dev/null; then
+        echo "HuggingFace auth: $(hf auth whoami 2>/dev/null | head -1)"
     else
         echo "WARNING: HuggingFace not authenticated. Gated models will fail to download."
-        echo "  Run: huggingface-cli login"
+        echo "  Run: hf auth login"
     fi
 
     # 5. Check proxy env vars
@@ -183,18 +187,19 @@ ENVEOF
     docker compose up -d
 
     # 10. Generate SSH key
-    if [[ ! -f "$TF_SSH_KEY" ]]; then
+    if [[ -f "$TF_SSH_KEY" ]]; then
+        echo "SSH key already exists: $TF_SSH_KEY"
+    else
+        mkdir -p "$(dirname "$TF_SSH_KEY")"
         echo "Generating SSH key..."
         ssh-keygen -t ed25519 -f "$TF_SSH_KEY" -N ""
-    else
-        echo "SSH key already exists"
     fi
 
     echo ""
     echo "=== Infra node setup complete ==="
     echo "  Docker:       $(docker --version)"
     echo "  uv:           $(uv --version)"
-    echo "  huggingface:  $(huggingface-cli --version 2>/dev/null || echo 'not installed')"
+    echo "  hf:           $(hf version 2>/dev/null || echo 'not installed')"
     echo "  Compose:      running (check: docker compose ps)"
     echo ""
     echo "Next steps:"

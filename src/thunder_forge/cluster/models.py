@@ -63,7 +63,7 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
             print(f"  [dry-run] Would rsync to {node_name}")
         return errors
     print(f"  Downloading {task.repo} on rock...")
-    dl_cmd = f"huggingface-cli download {task.repo} --revision {task.revision}"
+    dl_cmd = f"hf download {task.repo} --revision {task.revision}"
     result = ssh_run(rock.user, rock.ip, dl_cmd, timeout=600)
     if result.returncode != 0:
         errors.append(f"Download failed for {task.repo}: {result.stderr.strip()}")
@@ -97,7 +97,7 @@ def ensure_convert(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fa
         print(f"  [dry-run] Would download {task.repo}, convert (q={task.quantize}), sync to {task.target_nodes}")
         return errors
     print(f"  Downloading source {task.repo} on rock...")
-    dl_result = ssh_run(rock.user, rock.ip, f"huggingface-cli download {task.repo}", timeout=600)
+    dl_result = ssh_run(rock.user, rock.ip, f"hf download {task.repo}", timeout=600)
     if dl_result.returncode != 0:
         errors.append(f"Download failed for {task.repo}: {dl_result.stderr.strip()}")
         return errors
@@ -157,7 +157,7 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
             print(f"  [dry-run] Would download weights {task.weight_repo} on rock")
         else:
             print(f"  Downloading weights {task.weight_repo} on rock...")
-            dl_result = ssh_run(rock.user, rock.ip, f"huggingface-cli download {task.weight_repo}", timeout=600)
+            dl_result = ssh_run(rock.user, rock.ip, f"hf download {task.weight_repo}", timeout=600)
             if dl_result.returncode != 0:
                 errors.append(f"Weight download failed for {task.weight_repo}: {dl_result.stderr.strip()}")
                 return errors

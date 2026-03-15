@@ -29,7 +29,7 @@ def ssh_run(
     """Run a command on a remote node via SSH, or locally if the target is this machine."""
     if _is_local(ip):
         return subprocess.run(
-            ["bash", "-c", cmd],
+            ["bash", "-lc", cmd],
             capture_output=True, text=True, timeout=timeout,
         )
     return subprocess.run(
@@ -57,7 +57,7 @@ def scp_content(
     """Write content to a remote file via SSH stdin pipe, or locally if target is this machine."""
     if _is_local(ip):
         return subprocess.run(
-            ["bash", "-c", f"cat > {remote_path}"],
+            ["bash", "-lc", f"cat > {remote_path}"],
             input=content, capture_output=True, text=True, timeout=15,
         )
     return subprocess.run(
