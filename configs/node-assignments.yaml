@@ -1,5 +1,10 @@
 # ── Model registry ──────────────────────────────────
 # Add new models here. They become available for assignment.
+# Source types:
+#   huggingface  — pre-converted MLX weights from any HF repo
+#   convert      — auto-convert + quantize any HF model to MLX
+#   local        — model already on disk (manual management)
+#   pip          — installable tool (image/video gen, not served by vllm-mlx)
 models:
   coder:
     source:
@@ -7,10 +12,72 @@ models:
       repo: "mlx-community/Qwen3-Coder-Next-4bit"
       revision: "main"
     disk_gb: 44.8
-    kv_per_32k_gb: 8
+    kv_per_32k_gb: 0.75
     active_params: "3B of 80B"
-    max_context: 131072
-    notes: "70%+ SWE-Bench ≈ Sonnet"
+    max_context: 262144
+    notes: "70%+ SWE-Bench ≈ Sonnet. Best for agentic coding (tool calling, error recovery, 370 languages)."
+
+  general:
+    source:
+      type: huggingface
+      repo: "mlx-community/Qwen3.5-35B-A3B-4bit"
+      revision: "main"
+    disk_gb: 20.4
+    kv_per_32k_gb: 0.6
+    active_params: "3B of 35B"
+    max_context: 262144
+    notes: "Multimodal (text+image+video). MMLU-Pro 85.3, SWE-bench 69.2%. ~40-50 tok/s on M4 Max."
+
+  fast:
+    source:
+      type: huggingface
+      repo: "mlx-community/Qwen3.5-9B-MLX-4bit"
+      revision: "main"
+    disk_gb: 5.6
+    kv_per_32k_gb: 0.3
+    active_params: "9B dense"
+    max_context: 262144
+    notes: "Fast fallback for simple queries. Multimodal (VLM). MMLU-Pro 82.5. ~80-120 tok/s on M4 Max."
+
+  # ── Retired models ──────────────────────────────────
+  # gpt-oss (62 GB) — removed: niche covered by coder + general.
+  # Qwen3-Next-80B-A3B (44.8 GB) — replaced by Qwen3.5-35B-A3B (20.4 GB).
+
+  # ── Non-LLM models ──────────────────────────────────
+  # These use different serving backends.
+
+  embedding:
+    source:
+      type: huggingface
+      repo: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
+      revision: "main"
+    disk_gb: 0.5
+    active_params: "0.6B"
+    max_context: 8192
+    serving: embedding
+    notes: "#1 MTEB multilingual (Qwen3 family). Lazy-loaded, ~0.5 GB RAM."
+
+  image-gen:
+    source:
+      type: pip
+      package: "mflux"
+      weight_repo: "Tongyi-MAI/Z-Image-Turbo"
+    disk_gb: 6
+    ram_gb: 6
+    active_params: "12B"
+    serving: mlx-openai-server
+    notes: "Z-Image-Turbo 8-bit via MFLUX. ~6 GB RAM, ~15s per 1024×1024."
+
+  video-gen:
+    source:
+      type: pip
+      package: "mlx-video"
+      weight_repo: "Lightricks/LTX-Video-2-0.9B-Distilled"
+    disk_gb: 5
+    ram_gb: 20
+    active_params: "19B"
+    serving: cli
+    notes: "LTX-2 distilled (FP16). ~20 GB RAM. Experimental."
 
 # ── Nodes ──────────────────────────────────────────
 nodes:
