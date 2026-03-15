@@ -29,7 +29,7 @@ def assignments_yaml(tmp_path: Path) -> Path:
             max_context: 131072
 
         nodes:
-          rock: { ip: "192.168.1.61", ram_gb: 32, user: "admin", role: infra }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
           msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
 
         assignments:
@@ -75,7 +75,7 @@ def overloaded_yaml(tmp_path: Path) -> Path:
 
         nodes:
           msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
-          rock: { ip: "192.168.1.61", ram_gb: 32, user: "admin", role: infra }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
 
         assignments:
           msm1:
@@ -111,7 +111,7 @@ def multi_model_yaml(tmp_path: Path) -> Path:
 
         nodes:
           msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
-          rock: { ip: "192.168.1.61", ram_gb: 32, user: "admin", role: infra }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
 
         assignments:
           msm1:
@@ -143,7 +143,7 @@ def test_validate_memory_uses_ram_gb_override(tmp_path: Path) -> None:
 
         nodes:
           msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
-          rock: { ip: "192.168.1.61", ram_gb: 32, user: "admin", role: infra }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
 
         assignments:
           msm1:
@@ -199,7 +199,7 @@ def test_generate_litellm_config_embedding_slot(tmp_path: Path) -> None:
 
         nodes:
           msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
-          rock: { ip: "192.168.1.61", ram_gb: 32, user: "admin", role: infra }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
 
         assignments:
           msm1:
@@ -233,7 +233,7 @@ def test_generate_litellm_config_skips_cli_serving(tmp_path: Path) -> None:
 
         nodes:
           msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
-          rock: { ip: "192.168.1.61", ram_gb: 32, user: "admin", role: infra }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
 
         assignments:
           msm1:

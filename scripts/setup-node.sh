@@ -118,12 +118,7 @@ setup_infra() {
         echo "Installing uv..."
         curl -LsSf https://astral.sh/uv/install.sh | sh
         export PATH="$HOME/.local/bin:$PATH"
-        # Add to shell profile
-        if [[ -f ~/.zshrc ]]; then
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-        else
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-        fi
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
     else
         echo "uv already installed"
     fi
@@ -181,7 +176,7 @@ ENVEOF
     echo "Next steps:"
     echo "  1. Copy SSH public key to inference nodes:"
     echo "     for ip in 192.168.1.{101,102,103,104}; do"
-    echo "       ssh-copy-id -i $TF_SSH_KEY admin@\$ip"
+    echo "       ssh-copy-id -i $TF_SSH_KEY \$USER@\$ip"
     echo "     done"
     echo "  2. Run: uv run thunder-forge ensure-models"
     echo "  3. Run: uv run thunder-forge deploy"

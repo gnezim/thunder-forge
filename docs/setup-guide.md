@@ -17,7 +17,7 @@ End-to-end guide for deploying the MLX inference cluster.
 ## Prerequisites
 
 - All nodes on the same LAN (192.168.1.0/24)
-- SSH access to each node as `admin`
+- SSH access to each node (`admin` on inference nodes, `infra_user` on rock)
 - macOS on inference nodes, Linux on rock
 
 ## Step 1: Bootstrap the Infrastructure Node (rock)
@@ -25,7 +25,7 @@ End-to-end guide for deploying the MLX inference cluster.
 SSH into rock and run the setup script:
 
 ```bash
-ssh admin@192.168.1.61
+ssh infra_user@192.168.1.61
 
 # Option A: clone the repo and run from there
 git clone https://github.com/shared-goals/thunder-forge.git ~/thunder-forge
@@ -54,7 +54,7 @@ TF_DIR=/opt/thunder-forge bash scripts/setup-node.sh infra
 # Or create scripts/.env or ~/.thunder-forge.env
 cat > ~/.thunder-forge.env <<EOF
 TF_DIR=/opt/thunder-forge
-TF_SSH_KEY=/home/admin/.ssh/cluster_key
+TF_SSH_KEY=/home/infra_user/.ssh/cluster_key
 TF_REPO_URL=git@github.com:shared-goals/thunder-forge.git
 EOF
 ```
@@ -255,7 +255,7 @@ ssh admin@192.168.1.101 "cat ~/logs/vllm-mlx-8000.log"
 
 **Docker services unhealthy:**
 ```bash
-ssh admin@192.168.1.61 "cd ~/thunder-forge/docker && docker compose ps && docker compose logs --tail=50"
+ssh infra_user@192.168.1.61 "cd ~/thunder-forge/docker && docker compose ps && docker compose logs --tail=50"
 ```
 
 **Memory budget exceeded:**
