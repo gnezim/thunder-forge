@@ -67,7 +67,7 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
             print(f"  [dry-run] Would rsync to {node_name}")
         return errors
     print(f"  Downloading {task.repo} on rock...")
-    hf_env = f"ALL_PROXY= HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
+    hf_env = f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
     dl_cmd = f"{hf_env} hf download {task.repo} --revision {task.revision}"
     result = ssh_run(rock.user, rock.ip, dl_cmd, timeout=600, stream=True)
     if result.returncode != 0:
@@ -102,7 +102,7 @@ def ensure_convert(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fa
         print(f"  [dry-run] Would download {task.repo}, convert (q={task.quantize}), sync to {task.target_nodes}")
         return errors
     print(f"  Downloading source {task.repo} on rock...")
-    hf_env = f"ALL_PROXY= HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
+    hf_env = f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
     dl_result = ssh_run(rock.user, rock.ip, f"{hf_env} hf download {task.repo}", timeout=600, stream=True)
     if dl_result.returncode != 0:
         errors.append(f"Download failed for {task.repo}: {dl_result.stderr.strip()}")
@@ -163,7 +163,7 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
             print(f"  [dry-run] Would download weights {task.weight_repo} on rock")
         else:
             print(f"  Downloading weights {task.weight_repo} on rock...")
-            hf_env = f"ALL_PROXY= HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
+            hf_env = f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
             dl_cmd = f"{hf_env} hf download {task.weight_repo}"
             dl_result = ssh_run(rock.user, rock.ip, dl_cmd, timeout=600, stream=True)
             if dl_result.returncode != 0:
