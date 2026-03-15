@@ -7,13 +7,16 @@ import subprocess
 
 
 def _is_local(ip: str) -> bool:
-    """Check if the given IP belongs to this machine."""
+    """Check if the given IP belongs to this machine by trying to bind to it."""
+    if ip in ("127.0.0.1", "::1"):
+        return True
     try:
-        local_ips = {addr[4][0] for addr in socket.getaddrinfo(socket.gethostname(), None)}
-    except socket.gaierror:
-        local_ips = set()
-    local_ips.update({"127.0.0.1", "::1"})
-    return ip in local_ips
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.bind((ip, 0))
+        s.close()
+        return True
+    except OSError:
+        return False
 
 
 def ssh_run(
