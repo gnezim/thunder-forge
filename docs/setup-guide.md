@@ -35,7 +35,7 @@ bash scripts/setup-node.sh infra
 
 This will:
 - Install Docker Engine and `uv`
-- Install `huggingface-cli` (for model downloads)
+- Install `hf` CLI (HuggingFace CLI, for model downloads)
 - Check HuggingFace auth (warns if not logged in)
 - Check proxy env vars (warns if `HTTP_PROXY`/`HTTPS_PROXY` not set)
 - Clone thunder-forge (if not already cloned)
