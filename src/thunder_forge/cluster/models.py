@@ -209,6 +209,16 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
     return errors
 
 
+def _needs_rock_download(tasks: list[ModelTask]) -> bool:
+    """Return True if any task will download models on rock."""
+    for task in tasks:
+        if task.source_type in ("huggingface", "convert"):
+            return True
+        if task.source_type == "pip" and task.weight_repo:
+            return True
+    return False
+
+
 def run_ensure_models(
     config: ClusterConfig,
     *,
@@ -216,6 +226,16 @@ def run_ensure_models(
     target_node: str | None = None,
 ) -> bool:
     tasks = resolve_model_tasks(config, target_node=target_node)
+
+    if _needs_rock_download(tasks) and "HF_HOME" not in os.environ:
+        print(
+            "ERROR: HF_HOME is not set. Without it, models download to ~/.cache/huggingface "
+            "on the root partition, which likely has insufficient space.\n"
+            "Set HF_HOME to the external drive mount point, e.g.:\n"
+            "  export HF_HOME=/mnt/external/.cache/huggingface"
+        )
+        return False
+
     all_ok = True
     for task in tasks:
         print(f"\n{task.model_name} ({task.source_type})")
