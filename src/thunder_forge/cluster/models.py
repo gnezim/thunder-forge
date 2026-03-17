@@ -8,8 +8,10 @@ from dataclasses import dataclass, field
 from thunder_forge.cluster.config import ClusterConfig
 from thunder_forge.cluster.ssh import _is_local, run_local, ssh_run
 
-# HF cache dir, respects HF_HOME env var (same as huggingface_hub library)
+# HF cache dir on the machine running the CLI (rock), respects HF_HOME env var
 HF_CACHE = os.environ.get("HF_HOME", "~/.cache/huggingface") + "/hub"
+# Default HF cache on inference nodes (no custom HF_HOME)
+DEFAULT_HF_CACHE = "~/.cache/huggingface/hub"
 
 
 @dataclass
@@ -52,9 +54,9 @@ def resolve_model_tasks(
     return list(task_map.values())
 
 
-def _check_hf_cached(user: str, ip: str, repo: str) -> bool:
+def _check_hf_cached(user: str, ip: str, repo: str, *, hf_cache: str = DEFAULT_HF_CACHE) -> bool:
     hf_path = repo.replace("/", "--")
-    result = ssh_run(user, ip, f"test -d {HF_CACHE}/models--{hf_path}/snapshots")
+    result = ssh_run(user, ip, f"test -d {hf_cache}/models--{hf_path}/snapshots")
     return result.returncode == 0
 
 
@@ -83,7 +85,7 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
         if _check_hf_cached(node.user, node.ip, task.repo):
             print(f"  {task.model_name} already cached on {node_name}")
             continue
-        dest_path = f"{node.user}@{node.ip}:{HF_CACHE}/models--{hf_cache_path}/"
+        dest_path = f"{node.user}@{node.ip}:{DEFAULT_HF_CACHE}/models--{hf_cache_path}/"
         print(f"  Syncing {task.model_name} to {node_name}...")
         rsync_result = run_local(
             ["rsync", "-az", "--progress", "-e", "ssh -o StrictHostKeyChecking=no",
@@ -186,7 +188,7 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
                 errors.append(f"{node_name}: install of {task.package} failed: {(result.stderr or '').strip()}")
         if task.weight_repo:
             hf_cache_path = task.weight_repo.replace("/", "--")
-            cache_dir = f"{HF_CACHE}/models--{hf_cache_path}/snapshots"
+            cache_dir = f"{DEFAULT_HF_CACHE}/models--{hf_cache_path}/snapshots"
             check_cached = ssh_run(node.user, node.ip, f"test -d {cache_dir}")
             if check_cached.returncode == 0:
                 print(f"  Weights {task.weight_repo} already cached on {node_name}")
@@ -195,7 +197,7 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
                 src_path = f"{HF_CACHE}/models--{hf_cache_path}/"
             else:
                 src_path = f"{rock.user}@{rock.ip}:{HF_CACHE}/models--{hf_cache_path}/"
-            dest_path = f"{node.user}@{node.ip}:{HF_CACHE}/models--{hf_cache_path}/"
+            dest_path = f"{node.user}@{node.ip}:{DEFAULT_HF_CACHE}/models--{hf_cache_path}/"
             print(f"  Syncing weights {task.weight_repo} to {node_name}...")
             rsync_result = run_local(
                 ["rsync", "-az", "--progress", "-e", "ssh -o StrictHostKeyChecking=no",
