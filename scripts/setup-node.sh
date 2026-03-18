@@ -28,10 +28,17 @@ for envfile in "$SCRIPT_DIR/.env" "$HOME/.thunder-forge.env"; do
     if [[ -f "$envfile" ]]; then
         # Source only lines matching KEY=VALUE, skip comments and blanks.
         # Existing env vars take precedence (won't overwrite).
-        while IFS='=' read -r key value; do
-            [[ -z "$key" || "$key" == \#* ]] && continue
-            value="${value%\"}" && value="${value#\"}"  # strip quotes
-            export "${key}=${!key:-$value}"
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            line="${line%%#*}"          # strip inline comments
+            line="${line#"${line%%[![:space:]]*}"}"  # trim leading whitespace
+            line="${line%"${line##*[![:space:]]}"}"  # trim trailing whitespace
+            [[ -z "$line" ]] && continue
+            key="${line%%=*}"
+            value="${line#*=}"
+            value="${value#\"}" && value="${value%\"}"  # strip double quotes
+            value="${value#\'}" && value="${value%\'}"  # strip single quotes
+            value="${value/#\~/$HOME}"                  # expand tilde
+            [[ -z "${!key:-}" ]] && export "$key=$value"
         done < "$envfile"
         echo "Loaded config from $envfile"
     fi
