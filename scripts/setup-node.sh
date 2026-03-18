@@ -78,7 +78,7 @@ setup_inference() {
         echo "Installing uv..."
         curl -LsSf https://astral.sh/uv/install.sh | sh
         export PATH="$HOME/.local/bin:$PATH"
-        echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zprofile
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
     else
         echo "uv already installed"
     fi
