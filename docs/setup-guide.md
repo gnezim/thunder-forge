@@ -22,7 +22,7 @@ SSH into your infrastructure node, clone the repo and run the setup script:
 ```bash
 git clone https://github.com/shared-goals/thunder-forge.git ~/thunder-forge
 cd ~/thunder-forge
-bash scripts/setup-node.sh infra
+zsh scripts/setup-node.sh infra
 ```
 
 > **Note:** `git clone` is always the first step on any node. The setup script and all configuration live in the repo.
@@ -70,7 +70,7 @@ SSH into each inference node, clone the repo and run the setup script:
 ```bash
 git clone https://github.com/shared-goals/thunder-forge.git ~/thunder-forge
 cd ~/thunder-forge
-bash scripts/setup-node.sh inference
+zsh scripts/setup-node.sh inference
 ```
 
 > **Note:** Same pattern as the infra node — always clone the repo first.
