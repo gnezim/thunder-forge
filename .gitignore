@@ -1,6 +1,9 @@
 # Secrets
 docker/.env
 
+# Node config (contains local IPs, per-cluster)
+configs/node-assignments.yaml
+
 # Python
 .venv/
 __pycache__/
