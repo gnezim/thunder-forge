@@ -25,7 +25,7 @@ fi
 
 # ── Load .env (script-local first, then home dir) ─────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-for envfile in "$SCRIPT_DIR/.env" "$HOME/.thunder-forge.env"; do
+for envfile in "$SCRIPT_DIR/../.env" "$SCRIPT_DIR/.env" "$HOME/.thunder-forge.env"; do
     if [[ -f "$envfile" ]]; then
         # Source only lines matching KEY=VALUE, skip comments and blanks.
         # Existing env vars take precedence (won't overwrite).

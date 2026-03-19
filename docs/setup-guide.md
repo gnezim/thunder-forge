@@ -37,23 +37,26 @@ This will:
 
 ### Configure environment variables (before running)
 
-Before running the setup script, create a `.env` file next to it or at `~/.thunder-forge.env` with your settings:
+Before running the setup script, create a `.env` file in the project root:
 
 ```bash
-cat > ~/thunder-forge/scripts/.env <<EOF
-TF_DIR=~/thunder-forge
-TF_LOG_DIR=~/logs
+cp ~/thunder-forge/.env.example ~/thunder-forge/.env
+vi ~/thunder-forge/.env
+```
+
+```bash
+# ~/thunder-forge/.env
+TF_SSH_USER=admin
 TF_SSH_KEY=~/.ssh/id_ed25519
 HF_HOME=~/.cache/huggingface
 # Uncomment if outbound internet goes through a proxy:
 # HTTP_PROXY=socks5h://127.0.0.1:1080
 # HTTPS_PROXY=socks5h://127.0.0.1:1080
-EOF
 ```
 
-See `scripts/.env.example` for the full list of supported variables. Existing environment variables take precedence over values in `.env`.
+This `.env` file is used by both `setup-node.sh` and `thunder-forge` CLI commands. Existing environment variables take precedence.
 
-If outbound internet is filtered through a proxy, set `HTTP_PROXY`/`HTTPS_PROXY` in the `.env` file above or export them before running the script.
+If outbound internet is filtered through a proxy, uncomment `HTTP_PROXY`/`HTTPS_PROXY` in the `.env` file.
 
 After setup, authenticate with HuggingFace (required for gated models):
 
@@ -77,19 +80,14 @@ zsh scripts/setup-node.sh inference
 
 ### Configure environment variables (optional)
 
-Create `scripts/.env` or `~/.thunder-forge.env` before running:
+Create a `.env` in the project root before running (or edit the existing one):
 
 ```bash
-cat > ~/thunder-forge/scripts/.env <<EOF
-TF_LOG_DIR=~/logs
-TF_DISABLE_SLEEP=true
-EOF
+cp ~/thunder-forge/.env.example ~/thunder-forge/.env
+vi ~/thunder-forge/.env
 ```
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TF_LOG_DIR` | `~/logs` | Directory for vllm-mlx logs |
-| `TF_DISABLE_SLEEP` | `true` | Set `false` to skip disabling macOS sleep |
+To skip disabling macOS sleep, add `TF_DISABLE_SLEEP=false` to `.env`.
 
 This will:
 - Install Homebrew, `uv`, and `vllm-mlx`
@@ -128,22 +126,21 @@ cp .env.example .env
 vi .env
 ```
 
+If you already created `.env` during Step 1, it's already in place. Otherwise:
+
 ```bash
-# .env — loaded by thunder-forge CLI commands
-TF_SSH_USER=admin
-TF_SSH_KEY=~/.ssh/id_ed25519
-HF_HOME=~/.cache/huggingface
+cp .env.example .env
+vi .env
 ```
+
+This single `.env` file is used by both `thunder-forge` CLI commands and `setup-node.sh`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TF_SSH_USER` | `admin` (inference) / current user (infra) | Default SSH user for nodes |
 | `TF_SSH_KEY` | `~/.ssh/id_ed25519` | SSH key path |
 | `HF_HOME` | `~/.cache/huggingface` | HuggingFace cache directory |
-
-> **Important:** There are two `.env` files with different purposes:
-> - **`~/thunder-forge/.env`** — operational config for the CLI (loaded by `thunder-forge` commands)
-> - **`~/thunder-forge/scripts/.env`** — config for `setup-node.sh` (paths, proxy, etc.)
+| `TF_DISABLE_SLEEP` | `true` | Disable macOS sleep on inference nodes |
 
 Per-node user overrides go in `node-assignments.yaml` (see below).
 
@@ -315,7 +312,7 @@ uv run thunder-forge deploy
 
 ## Setup Script Variables
 
-These variables configure `scripts/setup-node.sh`. Set via environment or a `.env` file next to the script (or `~/.thunder-forge.env`):
+These variables configure `scripts/setup-node.sh`. Set them in the project root `.env` file or export as environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
