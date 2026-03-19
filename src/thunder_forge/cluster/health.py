@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import urllib.error
 import urllib.request
 
 from thunder_forge.cluster.config import ClusterConfig
+from thunder_forge.cluster.ssh import ssh_run
 
 
 def check_inference_node(ip: str, port: int, timeout: float = 5.0) -> bool:
@@ -26,16 +26,7 @@ def check_docker_services(
 ) -> dict[str, bool]:
     results = {svc: False for svc in expected_services}
     try:
-        cmd = [
-            "ssh",
-            "-o",
-            "ConnectTimeout=5",
-            "-o",
-            "StrictHostKeyChecking=no",
-            f"{rock_user}@{rock_ip}",
-            "zsh -lc 'cd ~/thunder-forge/docker && docker compose ps --format json'",
-        ]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        proc = ssh_run(rock_user, rock_ip, "cd ~/thunder-forge/docker && docker compose ps --format json", timeout=15)
         if proc.returncode != 0:
             return results
         for line in proc.stdout.strip().splitlines():
@@ -51,7 +42,7 @@ def check_docker_services(
                         results[expected] = state == "running" and health in ("healthy", "")
             except json.JSONDecodeError:
                 continue
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except Exception:
         pass
     return results
 
