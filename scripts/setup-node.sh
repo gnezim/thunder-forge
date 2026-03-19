@@ -12,6 +12,7 @@ set -euo pipefail
 #   TF_SSH_KEY      — SSH key path                      (default: ~/.ssh/id_ed25519)
 #   TF_REPO_URL     — git clone URL                     (default: https://github.com/shared-goals/thunder-forge.git)
 #   HF_HOME         — HuggingFace cache directory       (default: ~/.cache/huggingface)
+#   TF_DISABLE_SLEEP — disable macOS sleep on inference  (default: true, set "false" to skip)
 #
 # Place a .env file next to this script or at ~/.thunder-forge.env
 
@@ -78,7 +79,9 @@ setup_inference() {
         echo "Installing uv..."
         curl -LsSf https://astral.sh/uv/install.sh | sh
         export PATH="$HOME/.local/bin:$PATH"
-        echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+        PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+        grep -qF "$PATH_LINE" ~/.zshenv 2>/dev/null || echo "$PATH_LINE" >> ~/.zshenv
+        grep -qF "$PATH_LINE" ~/.zshrc 2>/dev/null || echo "$PATH_LINE" >> ~/.zshrc
     else
         echo "uv already installed"
     fi
@@ -91,12 +94,20 @@ setup_inference() {
         echo "vllm-mlx already installed"
     fi
 
-    # 4. Disable macOS sleep
-    echo "Disabling macOS sleep..."
-    sudo pmset -a sleep 0 displaysleep 0 disksleep 0
+    # 4. Disable macOS sleep (optional, pass --no-sleep-disable to skip)
+    if [[ "${TF_DISABLE_SLEEP:-true}" == "true" ]]; then
+        echo "Disabling macOS sleep..."
+        sudo pmset -a sleep 0 displaysleep 0 disksleep 0
+    else
+        echo "Skipping sleep disable (TF_DISABLE_SLEEP=false)"
+    fi
 
     # 5. Create logs directory
     mkdir -p "$TF_LOG_DIR"
+
+    # 6. Upgrade all uv tools to latest
+    echo "Upgrading uv tools..."
+    uv tool upgrade --all 2>/dev/null || true
 
     echo ""
     echo "=== Inference node setup complete ==="
@@ -130,7 +141,9 @@ setup_infra() {
         echo "Installing uv..."
         curl -LsSf https://astral.sh/uv/install.sh | sh
         export PATH="$HOME/.local/bin:$PATH"
-        echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+        PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+        grep -qF "$PATH_LINE" ~/.profile 2>/dev/null || echo "$PATH_LINE" >> ~/.profile
+        grep -qF "$PATH_LINE" ~/.bashrc 2>/dev/null || echo "$PATH_LINE" >> ~/.bashrc
     else
         echo "uv already installed"
     fi
@@ -172,6 +185,10 @@ setup_infra() {
     echo "Installing Python dependencies..."
     uv sync
 
+    # Upgrade all uv tools to latest
+    echo "Upgrading uv tools..."
+    uv tool upgrade --all 2>/dev/null || true
+
     # 8. Generate docker/.env with random secrets
     if [[ ! -f "$TF_DIR/docker/.env" ]]; then
         echo "Generating docker/.env with random secrets..."
@@ -211,10 +228,8 @@ ENVEOF
     echo "  Compose:      running (check: docker compose ps)"
     echo ""
     echo "Next steps:"
-    echo "  1. Copy SSH public key to inference nodes:"
-    echo "     for ip in 192.168.1.{101,102,103,104}; do"
-    echo "       ssh-copy-id -i $TF_SSH_KEY \$USER@\$ip"
-    echo "     done"
+    echo "  1. Copy SSH public key to each inference node:"
+    echo "     ssh-copy-id -i $TF_SSH_KEY <user>@<inference-node-ip>"
     echo "  2. Run: uv run thunder-forge ensure-models"
     echo "  3. Run: uv run thunder-forge deploy"
     echo "  4. Set up GitHub Actions runner (needs token from GitHub UI)"
