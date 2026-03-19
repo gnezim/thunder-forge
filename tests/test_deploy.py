@@ -52,8 +52,8 @@ def test_generate_plist_basic(config_path: Path) -> None:
     assert "--port" in xml_str
     assert "8000" in xml_str
     assert "--continuous-batching" in xml_str
-    assert "--max-model-len" in xml_str
-    assert "131072" in xml_str
+    assert "--max-model-len" not in xml_str
+    assert "no_proxy" in xml_str
     assert "Interactive" in xml_str
 
 
