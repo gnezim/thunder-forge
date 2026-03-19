@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Thunder Forge — Node Bootstrap Script
 # Usage:
-#   bash setup-node.sh inference   # Mac Studio inference node
-#   bash setup-node.sh infra       # Radxa ROCK infrastructure node
+#   bash setup-node.sh node      # Mac Studio inference node
+#   bash setup-node.sh gateway   # Radxa ROCK infrastructure/gateway node
 #
 # All paths are configurable via environment variables or a .env file:
 #   TF_DIR          — thunder-forge clone location      (default: ~/thunder-forge)
@@ -12,14 +12,14 @@ set -euo pipefail
 #   TF_SSH_KEY      — SSH key path                      (default: ~/.ssh/id_ed25519)
 #   TF_REPO_URL     — git clone URL                     (default: https://github.com/shared-goals/thunder-forge.git)
 #   HF_HOME         — HuggingFace cache directory       (default: ~/.cache/huggingface)
-#   TF_DISABLE_SLEEP — disable macOS sleep on inference  (default: true, set "false" to skip)
+#   TF_DISABLE_SLEEP — disable macOS sleep on node       (default: true, set "false" to skip)
 #
 # Place a .env file next to this script or at ~/.thunder-forge.env
 
 ROLE="${1:-}"
 
 if [[ -z "$ROLE" ]]; then
-    echo "Usage: $0 <inference|infra>"
+    echo "Usage: $0 <node|gateway>"
     exit 1
 fi
 
@@ -60,7 +60,7 @@ echo "Role: $ROLE"
 echo "TF_DIR=$TF_DIR"
 echo ""
 
-setup_inference() {
+setup_node() {
     echo "--- Setting up inference node (macOS) ---"
     echo ""
 
@@ -112,7 +112,7 @@ setup_inference() {
     uv tool upgrade --all 2>/dev/null || true
 
     echo ""
-    echo "=== Inference node setup complete ==="
+    echo "=== Node setup complete ==="
     echo "  Homebrew: $(brew --version | head -1)"
     echo "  uv:       $(uv --version)"
     echo "  vllm-mlx: $(vllm-mlx --version 2>/dev/null || echo 'installed')"
@@ -120,11 +120,11 @@ setup_inference() {
     echo ""
     echo "Next steps:"
     echo "  1. Ensure SSH key from rock is in ~/.ssh/authorized_keys"
-    echo "  2. Run 'thunder-forge deploy --node <this-node>' from rock"
+    echo "  2. Run 'thunder-forge deploy --node <this-node>' from gateway"
 }
 
-setup_infra() {
-    echo "--- Setting up infra node (Linux ARM64) ---"
+setup_gateway() {
+    echo "--- Setting up gateway node (Linux ARM64) ---"
     echo ""
 
     # 1. Docker Engine
@@ -223,7 +223,7 @@ ENVEOF
     fi
 
     echo ""
-    echo "=== Infra node setup complete ==="
+    echo "=== Gateway setup complete ==="
     echo "  Docker:       $(docker --version)"
     echo "  uv:           $(uv --version)"
     echo "  hf:           $(hf version 2>/dev/null || echo 'not installed')"
@@ -238,11 +238,11 @@ ENVEOF
 }
 
 case "$ROLE" in
-    inference) setup_inference ;;
-    infra)     setup_infra ;;
+    node)      setup_node ;;
+    gateway)   setup_gateway ;;
     *)
         echo "Unknown role: $ROLE"
-        echo "Usage: $0 <inference|infra>"
+        echo "Usage: $0 <node|gateway>"
         exit 1
         ;;
 esac

@@ -129,13 +129,13 @@ New nodes can be set up with the bootstrap script:
 
 ```bash
 # On a Mac Studio (inference node)
-bash scripts/setup-node.sh inference
+zsh scripts/setup-node.sh node
 
-# On the Radxa ROCK (infrastructure hub)
-bash scripts/setup-node.sh infra
+# On the Radxa ROCK (gateway / infrastructure hub)
+zsh scripts/setup-node.sh gateway
 ```
 
-The `inference` role installs Homebrew, uv, and vllm-mlx, disables macOS sleep, and creates the logs directory. The `infra` role installs Docker, uv, clones this repo, generates secrets for the Docker Compose stack, starts the services, and generates an SSH key for connecting to inference nodes.
+The `node` role installs Homebrew, uv, and vllm-mlx, disables macOS sleep, and creates the logs directory. The `gateway` role installs Docker, uv, clones this repo, generates secrets for the Docker Compose stack, starts the services, and generates an SSH key for connecting to inference nodes.
 
 ### Configuration
 
