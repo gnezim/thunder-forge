@@ -60,6 +60,23 @@ echo "Role: $ROLE"
 echo "TF_DIR=$TF_DIR"
 echo ""
 
+# ── Shared helpers ──────────────────────────────────
+
+append_if_missing() {
+    # Usage: append_if_missing "line content" file1 file2 ...
+    local line="$1"; shift
+    for f in "$@"; do
+        grep -qF "$line" "$f" 2>/dev/null || echo "$line" >> "$f"
+    done
+}
+
+upgrade_uv_tools() {
+    echo "Upgrading uv tools..."
+    uv tool upgrade --all 2>/dev/null || true
+}
+
+# ── Role setup functions ────────────────────────────
+
 setup_node() {
     echo "--- Setting up inference node (macOS) ---"
     echo ""
@@ -68,9 +85,7 @@ setup_node() {
     if ! command -v brew &>/dev/null; then
         echo "Installing Homebrew..."
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        BREW_LINE='eval "$(/opt/homebrew/bin/brew shellenv)"'
-        grep -qF "$BREW_LINE" ~/.zshenv 2>/dev/null || echo "$BREW_LINE" >> ~/.zshenv
-        grep -qF "$BREW_LINE" ~/.zshrc 2>/dev/null || echo "$BREW_LINE" >> ~/.zshrc
+        append_if_missing 'eval "$(/opt/homebrew/bin/brew shellenv)"' ~/.zshenv ~/.zshrc
         eval "$(/opt/homebrew/bin/brew shellenv)"
     else
         echo "Homebrew already installed"
@@ -81,9 +96,7 @@ setup_node() {
         echo "Installing uv..."
         curl -LsSf https://astral.sh/uv/install.sh | sh
         export PATH="$HOME/.local/bin:$PATH"
-        PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
-        grep -qF "$PATH_LINE" ~/.zshenv 2>/dev/null || echo "$PATH_LINE" >> ~/.zshenv
-        grep -qF "$PATH_LINE" ~/.zshrc 2>/dev/null || echo "$PATH_LINE" >> ~/.zshrc
+        append_if_missing 'export PATH="$HOME/.local/bin:$PATH"' ~/.zshenv ~/.zshrc
     else
         echo "uv already installed"
     fi
@@ -108,8 +121,7 @@ setup_node() {
     mkdir -p "$TF_LOG_DIR"
 
     # 6. Upgrade all uv tools to latest
-    echo "Upgrading uv tools..."
-    uv tool upgrade --all 2>/dev/null || true
+    upgrade_uv_tools
 
     echo ""
     echo "=== Node setup complete ==="
@@ -143,9 +155,7 @@ setup_gateway() {
         echo "Installing uv..."
         curl -LsSf https://astral.sh/uv/install.sh | sh
         export PATH="$HOME/.local/bin:$PATH"
-        PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
-        grep -qF "$PATH_LINE" ~/.zshenv 2>/dev/null || echo "$PATH_LINE" >> ~/.zshenv
-        grep -qF "$PATH_LINE" ~/.zshrc 2>/dev/null || echo "$PATH_LINE" >> ~/.zshrc
+        append_if_missing 'export PATH="$HOME/.local/bin:$PATH"' ~/.zshenv ~/.zshrc
     else
         echo "uv already installed"
     fi
@@ -187,9 +197,7 @@ setup_gateway() {
     echo "Installing Python dependencies..."
     uv sync
 
-    # Upgrade all uv tools to latest
-    echo "Upgrading uv tools..."
-    uv tool upgrade --all 2>/dev/null || true
+    upgrade_uv_tools
 
     # 8. Generate docker/.env with random secrets
     if [[ ! -f "$TF_DIR/docker/.env" ]]; then

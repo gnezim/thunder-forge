@@ -122,15 +122,12 @@ def deploy_node(
     if not slots:
         return [f"{node_name}: no assignments found"]
 
-    ssh_run(node.user, node.ip, "mkdir -p ~/logs")
-    ssh_run(node.user, node.ip, "mkdir -p ~/Library/LaunchAgents")
-
-    upgrade_node_tools(node)
-
-    uid_result = ssh_run(node.user, node.ip, "id -u")
+    uid_result = ssh_run(node.user, node.ip, "mkdir -p ~/logs ~/Library/LaunchAgents && id -u")
     if uid_result.returncode != 0:
         return [f"{node_name}: failed to get UID"]
     uid = uid_result.stdout.strip()
+
+    upgrade_node_tools(node)
 
     deployed_ports: set[int] = set()
 
@@ -150,10 +147,10 @@ def deploy_node(
         label = f"com.vllm-mlx-{slot.port}"
         domain = f"gui/{uid}"
 
-        # Try bootout → bootstrap (clean deploy).
-        # If bootstrap fails (service already registered), fall back to kickstart (in-place restart).
-        ssh_run(node.user, node.ip, f"launchctl bootout {domain}/{label} 2>/dev/null || true; sleep 1")
-        result = ssh_run(node.user, node.ip, f"launchctl bootstrap {domain} ~/Library/LaunchAgents/{plist_name}")
+        # Bootout + bootstrap in one call. If bootstrap fails (already registered), fall back to kickstart.
+        plist_path = f"~/Library/LaunchAgents/{plist_name}"
+        cmd = f"launchctl bootout {domain}/{label} 2>/dev/null; launchctl bootstrap {domain} {plist_path}"
+        result = ssh_run(node.user, node.ip, cmd)
         if result.returncode != 0:
             result = ssh_run(node.user, node.ip, f"launchctl kickstart -kp {domain}/{label}")
             if result.returncode != 0:
@@ -173,8 +170,9 @@ def deploy_node(
                 port = int(filename.replace("com.vllm-mlx-", "").replace(".plist", ""))
                 if port not in deployed_ports:
                     print(f"  Removing stale plist for port {port}")
-                    ssh_run(node.user, node.ip, f"launchctl bootout gui/{uid}/com.vllm-mlx-{port} 2>/dev/null || true")
-                    ssh_run(node.user, node.ip, f"rm ~/Library/LaunchAgents/com.vllm-mlx-{port}.plist")
+                    stale = f"com.vllm-mlx-{port}"
+                    cmd = f"launchctl bootout gui/{uid}/{stale} 2>/dev/null; rm ~/Library/LaunchAgents/{stale}.plist"
+                    ssh_run(node.user, node.ip, cmd)
             except ValueError:
                 continue
 

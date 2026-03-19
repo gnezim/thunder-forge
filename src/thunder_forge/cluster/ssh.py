@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 import socket
 import subprocess
 
@@ -31,24 +32,19 @@ def ssh_run(
     capture = not stream
     if _is_local(ip):
         return subprocess.run(
-            ["bash", "-lc", cmd],
+            ["zsh", "-lc", cmd],
             capture_output=capture,
             text=True,
             timeout=timeout,
         )
     # Wrap in login zsh so ~/.zshenv is sourced (PATH, brew, uv, hf, etc.)
-    wrapped = f"zsh -lc {_shell_quote(cmd)}"
+    wrapped = f"zsh -lc {shlex.quote(cmd)}"
     return subprocess.run(
         ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", f"{user}@{ip}", wrapped],
         capture_output=capture,
         text=True,
         timeout=timeout,
     )
-
-
-def _shell_quote(s: str) -> str:
-    """Quote a string for safe embedding in a shell command."""
-    return "'" + s.replace("'", "'\\''") + "'"
 
 
 def run_local(
@@ -69,7 +65,7 @@ def scp_content(
     """Write content to a remote file via SSH stdin pipe, or locally if target is this machine."""
     if _is_local(ip):
         return subprocess.run(
-            ["bash", "-lc", f"cat > {remote_path}"],
+            ["zsh", "-lc", f"cat > {remote_path}"],
             input=content,
             capture_output=True,
             text=True,
