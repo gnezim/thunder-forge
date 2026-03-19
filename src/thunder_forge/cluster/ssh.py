@@ -36,12 +36,19 @@ def ssh_run(
             text=True,
             timeout=timeout,
         )
+    # Wrap in login zsh so ~/.zshenv is sourced (PATH, brew, uv, hf, etc.)
+    wrapped = f"zsh -lc {_shell_quote(cmd)}"
     return subprocess.run(
-        ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", f"{user}@{ip}", cmd],
+        ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", f"{user}@{ip}", wrapped],
         capture_output=capture,
         text=True,
         timeout=timeout,
     )
+
+
+def _shell_quote(s: str) -> str:
+    """Quote a string for safe embedding in a shell command."""
+    return "'" + s.replace("'", "'\\''") + "'"
 
 
 def run_local(

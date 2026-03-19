@@ -33,7 +33,7 @@ def check_docker_services(
             "-o",
             "StrictHostKeyChecking=no",
             f"{rock_user}@{rock_ip}",
-            "cd ~/thunder-forge/docker && docker compose ps --format json",
+            "zsh -lc 'cd ~/thunder-forge/docker && docker compose ps --format json'",
         ]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
         if proc.returncode != 0:
