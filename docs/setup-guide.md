@@ -17,7 +17,7 @@ Thunder Forge manages two types of nodes:
 
 ## Step 1: Bootstrap the Infrastructure Node
 
-SSH into your infrastructure node and clone the repo:
+SSH into your infrastructure node, clone the repo and run the setup script:
 
 ```bash
 git clone https://github.com/shared-goals/thunder-forge.git ~/thunder-forge
@@ -25,20 +25,35 @@ cd ~/thunder-forge
 bash scripts/setup-node.sh infra
 ```
 
+> **Note:** `git clone` is always the first step on any node. The setup script and all configuration live in the repo.
+
 This will:
 - Install Docker Engine, `uv`, and `hf` CLI (HuggingFace)
-- Clone thunder-forge and install Python dependencies
+- Install Python dependencies (`uv sync`)
 - Generate `docker/.env` with random secrets (LiteLLM master key, Postgres password, WebUI credentials)
 - Start Docker Compose (LiteLLM, Open WebUI, PostgreSQL)
 - Generate an SSH keypair for connecting to inference nodes
 - Upgrade all installed tools to latest versions
 
-If outbound internet is filtered through a proxy:
+### Configure environment variables (before running)
+
+Before running the setup script, create a `.env` file next to it or at `~/.thunder-forge.env` with your settings:
 
 ```bash
-export HTTP_PROXY=http://your-proxy:port
-export HTTPS_PROXY=http://your-proxy:port
+cat > ~/thunder-forge/scripts/.env <<EOF
+TF_DIR=~/thunder-forge
+TF_LOG_DIR=~/logs
+TF_SSH_KEY=~/.ssh/id_ed25519
+HF_HOME=~/.cache/huggingface
+# Uncomment if outbound internet goes through a proxy:
+# HTTP_PROXY=socks5h://127.0.0.1:1080
+# HTTPS_PROXY=socks5h://127.0.0.1:1080
+EOF
 ```
+
+See `scripts/.env.example` for the full list of supported variables. Existing environment variables take precedence over values in `.env`.
+
+If outbound internet is filtered through a proxy, set `HTTP_PROXY`/`HTTPS_PROXY` in the `.env` file above or export them before running the script.
 
 After setup, authenticate with HuggingFace (required for gated models):
 
@@ -50,16 +65,35 @@ hf auth login
 
 ## Step 2: Bootstrap Inference Nodes
 
-SSH into each inference node and run:
+SSH into each inference node, clone the repo and run the setup script:
 
 ```bash
-# Copy the script from the infra node, or download it directly
-bash setup-node.sh inference
+git clone https://github.com/shared-goals/thunder-forge.git ~/thunder-forge
+cd ~/thunder-forge
+bash scripts/setup-node.sh inference
 ```
+
+> **Note:** Same pattern as the infra node — always clone the repo first.
+
+### Configure environment variables (optional)
+
+Create `scripts/.env` or `~/.thunder-forge.env` before running:
+
+```bash
+cat > ~/thunder-forge/scripts/.env <<EOF
+TF_LOG_DIR=~/logs
+TF_DISABLE_SLEEP=true
+EOF
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TF_LOG_DIR` | `~/logs` | Directory for vllm-mlx logs |
+| `TF_DISABLE_SLEEP` | `true` | Set `false` to skip disabling macOS sleep |
 
 This will:
 - Install Homebrew, `uv`, and `vllm-mlx`
-- Optionally disable macOS sleep (set `TF_DISABLE_SLEEP=false` to skip)
+- Optionally disable macOS sleep
 - Create log directory (`~/logs`)
 - Add `~/.local/bin` to PATH in `~/.zshenv` and `~/.zshrc`
 - Upgrade all installed tools to latest versions
@@ -82,16 +116,20 @@ ssh -o BatchMode=yes <user>@<inference-node-ip> "echo ok"
 
 ## Step 4: Configure the Project
 
+All remaining steps run from the **infrastructure node** in `~/thunder-forge`.
+
 ### .env (operational config)
 
-Copy the template and adjust values:
+The project root `.env` is loaded by the CLI automatically. Copy the template and adjust:
 
 ```bash
+cd ~/thunder-forge
 cp .env.example .env
+vi .env
 ```
 
 ```bash
-# .env
+# .env — loaded by thunder-forge CLI commands
 TF_SSH_USER=admin
 TF_SSH_KEY=~/.ssh/id_ed25519
 HF_HOME=~/.cache/huggingface
@@ -102,6 +140,10 @@ HF_HOME=~/.cache/huggingface
 | `TF_SSH_USER` | `admin` (inference) / current user (infra) | Default SSH user for nodes |
 | `TF_SSH_KEY` | `~/.ssh/id_ed25519` | SSH key path |
 | `HF_HOME` | `~/.cache/huggingface` | HuggingFace cache directory |
+
+> **Important:** There are two `.env` files with different purposes:
+> - **`~/thunder-forge/.env`** — operational config for the CLI (loaded by `thunder-forge` commands)
+> - **`~/thunder-forge/scripts/.env`** — config for `setup-node.sh` (paths, proxy, etc.)
 
 Per-node user overrides go in `node-assignments.yaml` (see below).
 
