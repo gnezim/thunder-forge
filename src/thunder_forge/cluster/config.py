@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 
 
 @dataclass
@@ -94,6 +95,12 @@ def _parse_model(raw: dict) -> Model:
 
 def load_cluster_config(path: Path) -> ClusterConfig:
     """Load and parse node-assignments.yaml into a ClusterConfig."""
+    # Load .env from repo root (env vars take precedence)
+    repo_root = find_repo_root()
+    env_file = repo_root / ".env"
+    if env_file.exists():
+        load_dotenv(env_file, override=False)
+
     with path.open() as f:
         raw = yaml.safe_load(f)
 

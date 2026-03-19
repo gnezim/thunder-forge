@@ -306,3 +306,23 @@ def test_check_config_sync_mismatch(assignments_yaml: Path, tmp_path: Path) -> N
     committed = tmp_path / "litellm-config.yaml"
     committed.write_text("stale content")
     assert check_config_sync(config, committed) is False
+
+
+def test_load_cluster_config_loads_dotenv(assignments_yaml: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """load_cluster_config loads .env from repo root."""
+    import thunder_forge.cluster.config as config_module
+
+    monkeypatch.delenv("HF_HOME", raising=False)
+
+    # Create .env next to configs/ (find_repo_root() will find this)
+    repo_root = assignments_yaml.parent.parent
+    (repo_root / ".git").mkdir(exist_ok=True)  # find_repo_root() needs a git marker
+    dotenv_path = repo_root / ".env"
+    dotenv_path.write_text("HF_HOME=/test/hf/cache\n")
+
+    monkeypatch.setattr(config_module, "find_repo_root", lambda: repo_root)
+
+    load_cluster_config(assignments_yaml)
+
+    import os
+    assert os.environ.get("HF_HOME") == "/test/hf/cache"
