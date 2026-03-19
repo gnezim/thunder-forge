@@ -13,7 +13,10 @@ from thunder_forge.cluster.ssh import ssh_run
 def check_inference_node(ip: str, port: int, timeout: float = 5.0) -> bool:
     url = f"http://{ip}:{port}/v1/models"
     try:
-        with urllib.request.urlopen(url, timeout=timeout):
+        # Use a no-proxy handler to avoid SOCKS/HTTP proxy interference
+        handler = urllib.request.ProxyHandler({})
+        opener = urllib.request.build_opener(handler)
+        with opener.open(url, timeout=timeout):
             return True
     except Exception:
         return False

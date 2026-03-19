@@ -198,11 +198,13 @@ def health_poll(ip: str, port: int, *, timeout_secs: int = 180, interval: int = 
     import urllib.request
 
     url = f"http://{ip}:{port}/v1/models"
+    handler = urllib.request.ProxyHandler({})
+    opener = urllib.request.build_opener(handler)
     deadline = time.monotonic() + timeout_secs
 
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=5):
+            with opener.open(url, timeout=5):
                 return True
         except Exception:
             time.sleep(interval)

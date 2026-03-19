@@ -33,22 +33,25 @@ def config_path(tmp_path: Path) -> Path:
     return p
 
 
-@patch("thunder_forge.cluster.health.urllib.request.urlopen")
-def test_check_inference_node_healthy(mock_urlopen: MagicMock) -> None:
+@patch("thunder_forge.cluster.health.urllib.request.build_opener")
+def test_check_inference_node_healthy(mock_build_opener: MagicMock) -> None:
     mock_response = MagicMock()
-    mock_response.status = 200
     mock_response.__enter__ = lambda s: s
     mock_response.__exit__ = MagicMock(return_value=False)
-    mock_urlopen.return_value = mock_response
+    mock_opener = MagicMock()
+    mock_opener.open.return_value = mock_response
+    mock_build_opener.return_value = mock_opener
 
     result = check_inference_node("192.168.1.101", 8000)
     assert result is True
-    mock_urlopen.assert_called_once()
+    mock_opener.open.assert_called_once()
 
 
-@patch("thunder_forge.cluster.health.urllib.request.urlopen")
-def test_check_inference_node_unreachable(mock_urlopen: MagicMock) -> None:
-    mock_urlopen.side_effect = Exception("Connection refused")
+@patch("thunder_forge.cluster.health.urllib.request.build_opener")
+def test_check_inference_node_unreachable(mock_build_opener: MagicMock) -> None:
+    mock_opener = MagicMock()
+    mock_opener.open.side_effect = Exception("Connection refused")
+    mock_build_opener.return_value = mock_opener
 
     result = check_inference_node("192.168.1.101", 8000)
     assert result is False
