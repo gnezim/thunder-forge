@@ -147,7 +147,7 @@ def deploy_node(
             errors.append(f"{node_name}: failed to upload {plist_name}")
             continue
 
-        ssh_run(node.user, node.ip, f"launchctl bootout gui/{uid}/com.vllm-mlx-{slot.port} 2>/dev/null || true")
+        ssh_run(node.user, node.ip, f"launchctl bootout gui/{uid}/com.vllm-mlx-{slot.port} 2>/dev/null || true; sleep 1")
 
         result = ssh_run(node.user, node.ip, f"launchctl bootstrap gui/{uid} ~/Library/LaunchAgents/{plist_name}")
         if result.returncode != 0:
