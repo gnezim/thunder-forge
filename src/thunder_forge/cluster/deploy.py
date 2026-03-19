@@ -237,13 +237,16 @@ def run_deploy(config: ClusterConfig, *, target_node: str | None = None) -> bool
     if restart_litellm(config):
         print("  LiteLLM restarted")
     else:
-        print("  LiteLLM restart failed")
-        all_ok = False
+        if target_node:
+            print("  Warning: LiteLLM restart failed (non-fatal with --node)")
+        else:
+            print("  LiteLLM restart failed")
+            all_ok = False
 
     print("\nWaiting for services to become healthy...")
-    for node_name, slots in sorted(config.assignments.items()):
+    for node_name in deploy_nodes:
         node = config.nodes[node_name]
-        for slot in slots:
+        for slot in config.assignments[node_name]:
             healthy = health_poll(node.ip, slot.port)
             status = "healthy" if healthy else "timeout"
             print(f"  {node_name}:{slot.port} ({slot.model}): {status}")
