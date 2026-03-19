@@ -88,8 +88,7 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
         dest_path = f"{node.user}@{node.ip}:{DEFAULT_HF_CACHE}/models--{hf_cache_path}/"
         print(f"  Syncing {task.model_name} to {node_name}...")
         rsync_result = run_local(
-            ["rsync", "-az", "--progress", "-e", "ssh -o StrictHostKeyChecking=no",
-             src_path, dest_path],
+            ["rsync", "-az", "--progress", "-e", "ssh -o StrictHostKeyChecking=no", src_path, dest_path],
             timeout=3600,
         )
         if rsync_result.returncode != 0:
@@ -200,8 +199,7 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
             dest_path = f"{node.user}@{node.ip}:{DEFAULT_HF_CACHE}/models--{hf_cache_path}/"
             print(f"  Syncing weights {task.weight_repo} to {node_name}...")
             rsync_result = run_local(
-                ["rsync", "-az", "--progress", "-e", "ssh -o StrictHostKeyChecking=no",
-                 src_path, dest_path],
+                ["rsync", "-az", "--progress", "-e", "ssh -o StrictHostKeyChecking=no", src_path, dest_path],
                 timeout=3600,
             )
             if rsync_result.returncode != 0:

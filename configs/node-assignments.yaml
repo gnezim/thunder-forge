@@ -39,6 +39,16 @@ models:
     max_context: 262144
     notes: "Fast fallback for simple queries. Multimodal (VLM). MMLU-Pro 82.5. ~80-120 tok/s on M4 Max."
 
+  test:
+    source:
+      type: huggingface
+      repo: "mlx-community/Llama-3.2-3B-Instruct-4bit"
+      revision: "main"
+    disk_gb: 1.8
+    active_params: "3B dense"
+    max_context: 131072
+    notes: "Small text-only model for testing. ~2 GB RAM."
+
   # ── Retired models ──────────────────────────────────
   # gpt-oss (62 GB) — removed: niche covered by coder + general.
   # Qwen3-Next-80B-A3B (44.8 GB) — replaced by Qwen3.5-35B-A3B (20.4 GB).
@@ -88,20 +98,24 @@ nodes:
   msm2: { ip: "192.168.1.102", ram_gb: 128, role: inference }
   msm3: { ip: "192.168.1.103", ram_gb: 128, role: inference }
   msm4: { ip: "192.168.1.104", ram_gb: 128, role: inference }
+  air:  { ip: "192.168.88.10", ram_gb: 16, role: inference, user: gnezim }
 
 # ── Node assignments ────────────────────────────────
 # Each node gets a list of {model, port} pairs.
 # One vllm-mlx process per entry.
 assignments:
-  msm1:
-    - model: coder
+  air:
+    - model: test
       port: 8000
-  msm2:
-    - model: coder
-      port: 8000
-  msm3:
-    - model: coder
-      port: 8000
-  msm4:
-    - model: coder
-      port: 8000
+  # msm1:
+  #   - model: fast
+  #     port: 8000
+  # msm2:
+  #   - model: coder
+  #     port: 8000
+  # msm3:
+  #   - model: coder
+  #     port: 8000
+  # msm4:
+  #   - model: coder
+  #     port: 8000

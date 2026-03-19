@@ -188,14 +188,16 @@ def generate_litellm_config(config: ClusterConfig) -> str:
             if slot.embedding:
                 emb_model = config.models.get("embedding")
                 if emb_model:
-                    model_list.append({
-                        "model_name": "embedding",
-                        "litellm_params": {
-                            "model": f"openai/{emb_model.source.repo}",
-                            "api_base": f"http://{node.ip}:{slot.port}/v1",
-                            "api_key": "none",
-                        },
-                    })
+                    model_list.append(
+                        {
+                            "model_name": "embedding",
+                            "litellm_params": {
+                                "model": f"openai/{emb_model.source.repo}",
+                                "api_base": f"http://{node.ip}:{slot.port}/v1",
+                                "api_key": "none",
+                            },
+                        }
+                    )
     output: dict = {
         "model_list": model_list,
         "litellm_settings": {
@@ -225,7 +227,9 @@ def find_repo_root() -> Path:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return Path(result.stdout.strip())
     except (subprocess.CalledProcessError, FileNotFoundError):

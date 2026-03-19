@@ -1,6 +1,5 @@
 """Thunder Forge CLI — cluster management commands."""
 
-
 import typer
 
 app = typer.Typer(
@@ -89,6 +88,7 @@ def ensure_models(
 @app.command()
 def deploy(
     node: str | None = typer.Option(None, "--node", help="Deploy to a single node (e.g. msm1)."),
+    skip_models: bool = typer.Option(False, "--skip-models", help="Skip model download/sync step."),
 ) -> None:
     """Deploy models, plists, and configs to the cluster."""
     from thunder_forge.cluster.config import (
@@ -105,10 +105,11 @@ def deploy(
     config_path = repo_root / "configs" / "litellm-config.yaml"
     config = load_cluster_config(assignments_path)
 
-    typer.echo("Ensuring models are present...")
-    if not run_ensure_models(config, target_node=node):
-        typer.echo("Model sync failed", err=True)
-        raise typer.Exit(1)
+    if not skip_models:
+        typer.echo("Ensuring models are present...")
+        if not run_ensure_models(config, target_node=node):
+            typer.echo("Model sync failed", err=True)
+            raise typer.Exit(1)
 
     typer.echo("\nGenerating config...")
     errors = validate_memory(config)

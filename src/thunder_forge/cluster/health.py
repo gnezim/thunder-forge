@@ -27,7 +27,11 @@ def check_docker_services(
     results = {svc: False for svc in expected_services}
     try:
         cmd = [
-            "ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no",
+            "ssh",
+            "-o",
+            "ConnectTimeout=5",
+            "-o",
+            "StrictHostKeyChecking=no",
             f"{rock_user}@{rock_ip}",
             "cd ~/thunder-forge/docker && docker compose ps --format json",
         ]

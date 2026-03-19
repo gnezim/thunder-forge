@@ -32,12 +32,15 @@ def ssh_run(
     if _is_local(ip):
         return subprocess.run(
             ["bash", "-lc", cmd],
-            capture_output=capture, text=True, timeout=timeout,
+            capture_output=capture,
+            text=True,
+            timeout=timeout,
         )
     return subprocess.run(
-        ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no",
-         f"{user}@{ip}", cmd],
-        capture_output=capture, text=True, timeout=timeout,
+        ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", f"{user}@{ip}", cmd],
+        capture_output=capture,
+        text=True,
+        timeout=timeout,
     )
 
 
@@ -60,10 +63,15 @@ def scp_content(
     if _is_local(ip):
         return subprocess.run(
             ["bash", "-lc", f"cat > {remote_path}"],
-            input=content, capture_output=True, text=True, timeout=15,
+            input=content,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
     return subprocess.run(
-        ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no",
-         f"{user}@{ip}", f"cat > {remote_path}"],
-        input=content, capture_output=True, text=True, timeout=15,
+        ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no", f"{user}@{ip}", f"cat > {remote_path}"],
+        input=content,
+        capture_output=True,
+        text=True,
+        timeout=15,
     )

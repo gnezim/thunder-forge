@@ -89,8 +89,7 @@ def generate_plist(
     ET.indent(plist, space="  ")
     xml_declaration = '<?xml version="1.0" encoding="UTF-8"?>\n'
     doctype = (
-        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"\n'
-        '  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"\n  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
     )
     body = ET.tostring(plist, encoding="unicode")
     return xml_declaration + doctype + body + "\n"
@@ -115,7 +114,7 @@ def upgrade_node_tools(node: Node) -> None:
     if result.returncode != 0:
         print(f"  Warning: uv tool upgrade failed on {node.ip} (continuing)")
     else:
-        print(f"  Tools upgraded")
+        print("  Tools upgraded")
 
 
 def deploy_node(
@@ -174,9 +173,7 @@ def deploy_node(
                 port = int(filename.replace("com.vllm-mlx-", "").replace(".plist", ""))
                 if port not in deployed_ports:
                     print(f"  Removing stale plist for port {port}")
-                    ssh_run(
-                        node.user, node.ip, f"launchctl bootout gui/{uid}/com.vllm-mlx-{port} 2>/dev/null || true"
-                    )
+                    ssh_run(node.user, node.ip, f"launchctl bootout gui/{uid}/com.vllm-mlx-{port} 2>/dev/null || true")
                     ssh_run(node.user, node.ip, f"rm ~/Library/LaunchAgents/com.vllm-mlx-{port}.plist")
             except ValueError:
                 continue

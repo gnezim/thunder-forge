@@ -325,4 +325,5 @@ def test_load_cluster_config_loads_dotenv(assignments_yaml: Path, monkeypatch: p
     load_cluster_config(assignments_yaml)
 
     import os
+
     assert os.environ.get("HF_HOME") == "/test/hf/cache"
