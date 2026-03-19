@@ -104,13 +104,7 @@ NEWSYSLOG_CONF = """\
 
 def upgrade_node_tools(node: Node) -> None:
     """Best-effort upgrade of uv-managed tools on a node."""
-    if node.role == "inference":
-        uv_path = "/opt/homebrew/bin/uv"
-    else:
-        user_home = f"/home/{node.user}"
-        uv_path = f"{user_home}/.local/bin/uv"
-
-    result = ssh_run(node.user, node.ip, f"{uv_path} tool upgrade --all", timeout=120)
+    result = ssh_run(node.user, node.ip, "uv tool upgrade --all", timeout=120)
     if result.returncode != 0:
         print(f"  Warning: uv tool upgrade failed on {node.ip} (continuing)")
     else:
