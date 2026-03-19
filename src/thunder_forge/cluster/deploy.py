@@ -147,11 +147,17 @@ def deploy_node(
             errors.append(f"{node_name}: failed to upload {plist_name}")
             continue
 
-        ssh_run(node.user, node.ip, f"launchctl bootout gui/{uid}/com.vllm-mlx-{slot.port} 2>/dev/null || true; sleep 1")
+        label = f"com.vllm-mlx-{slot.port}"
+        domain = f"gui/{uid}"
 
-        result = ssh_run(node.user, node.ip, f"launchctl bootstrap gui/{uid} ~/Library/LaunchAgents/{plist_name}")
+        # Try bootout → bootstrap (clean deploy).
+        # If bootstrap fails (service already registered), fall back to kickstart (in-place restart).
+        ssh_run(node.user, node.ip, f"launchctl bootout {domain}/{label} 2>/dev/null || true; sleep 1")
+        result = ssh_run(node.user, node.ip, f"launchctl bootstrap {domain} ~/Library/LaunchAgents/{plist_name}")
         if result.returncode != 0:
-            errors.append(f"{node_name}: launchctl bootstrap failed for port {slot.port}: {result.stderr.strip()}")
+            result = ssh_run(node.user, node.ip, f"launchctl kickstart -kp {domain}/{label}")
+            if result.returncode != 0:
+                errors.append(f"{node_name}: failed to start service on port {slot.port}: {result.stderr.strip()}")
 
         deployed_ports.add(slot.port)
 
