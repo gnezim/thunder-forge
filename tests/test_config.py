@@ -210,7 +210,7 @@ def test_generate_litellm_config_basic(assignments_yaml: Path) -> None:
     assert len(parsed["model_list"]) == 1
     entry = parsed["model_list"][0]
     assert entry["model_name"] == "coder"
-    assert entry["litellm_params"]["model"] == "hosted_vllm/mlx-community/Qwen3-Coder-Next-4bit"
+    assert entry["litellm_params"]["model"] == "openai/mlx-community/Qwen3-Coder-Next-4bit"
     assert entry["litellm_params"]["api_base"] == "http://192.168.1.101:8000/v1"
     assert entry["litellm_params"]["api_key"] == "none"
     assert entry["litellm_params"]["max_input_tokens"] == 131072

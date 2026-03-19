@@ -169,10 +169,9 @@ def generate_litellm_config(config: ClusterConfig) -> str:
             model = config.models[slot.model]
             if model.serving in ("embedding", "cli"):
                 continue
-            if model.serving == "mlx-openai-server":
-                provider = "openai"
-            else:
-                provider = "hosted_vllm"
+            # Use "openai" provider — vllm-mlx is fully OpenAI-compatible.
+            # "hosted_vllm" provider forces SSL in some LiteLLM versions.
+            provider = "openai"
             entry: dict = {
                 "model_name": slot.model,
                 "litellm_params": {
