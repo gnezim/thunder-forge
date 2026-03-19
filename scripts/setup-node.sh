@@ -68,7 +68,9 @@ setup_inference() {
     if ! command -v brew &>/dev/null; then
         echo "Installing Homebrew..."
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+        BREW_LINE='eval "$(/opt/homebrew/bin/brew shellenv)"'
+        grep -qF "$BREW_LINE" ~/.zshenv 2>/dev/null || echo "$BREW_LINE" >> ~/.zshenv
+        grep -qF "$BREW_LINE" ~/.zshrc 2>/dev/null || echo "$BREW_LINE" >> ~/.zshrc
         eval "$(/opt/homebrew/bin/brew shellenv)"
     else
         echo "Homebrew already installed"
