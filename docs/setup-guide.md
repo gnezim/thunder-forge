@@ -146,7 +146,14 @@ Per-node user overrides go in `node-assignments.yaml` (see below).
 
 ### node-assignments.yaml (cluster topology)
 
-Create `configs/node-assignments.yaml` — the single source of truth for your cluster. Define models, nodes, and assignments:
+Copy the template and edit it for your cluster:
+
+```bash
+cp configs/node-assignments.yaml.example configs/node-assignments.yaml
+vi configs/node-assignments.yaml
+```
+
+This is the single source of truth for your cluster. Define models, nodes, and assignments:
 
 ```yaml
 # Model registry — add models here

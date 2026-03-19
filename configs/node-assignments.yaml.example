@@ -1,0 +1,67 @@
+# ── Model registry ──────────────────────────────────
+# Add new models here. They become available for assignment.
+# Source types:
+#   huggingface  — pre-converted MLX weights from any HF repo
+#   convert      — auto-convert + quantize any HF model to MLX
+#   local        — model already on disk (manual management)
+#   pip          — installable tool (image/video gen, not served by vllm-mlx)
+models:
+  coder:
+    source:
+      type: huggingface
+      repo: "mlx-community/Qwen3-Coder-Next-4bit"
+      revision: "main"
+    disk_gb: 44.8
+    kv_per_32k_gb: 0.75
+    active_params: "3B of 80B"
+    max_context: 262144
+    notes: "Best for agentic coding (tool calling, error recovery)."
+
+  fast:
+    source:
+      type: huggingface
+      repo: "mlx-community/Qwen3.5-9B-MLX-4bit"
+      revision: "main"
+    disk_gb: 5.6
+    kv_per_32k_gb: 0.3
+    active_params: "9B dense"
+    max_context: 262144
+    notes: "Fast fallback for simple queries. ~80-120 tok/s on M4 Max."
+
+  embedding:
+    source:
+      type: huggingface
+      repo: "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
+      revision: "main"
+    disk_gb: 0.5
+    active_params: "0.6B"
+    max_context: 8192
+    serving: embedding
+    notes: "Lazy-loaded embedding model, ~0.5 GB RAM."
+
+# ── Nodes ──────────────────────────────────────────
+# Per-node user is optional. Falls back to TF_SSH_USER env var,
+# then current OS user for infra nodes or "admin" for inference nodes.
+nodes:
+  rock: { ip: "192.168.1.61", ram_gb: 32, role: infra }
+  msm1: { ip: "192.168.1.101", ram_gb: 128, role: inference }
+  msm2: { ip: "192.168.1.102", ram_gb: 128, role: inference }
+  # Add more nodes as needed:
+  # mynode: { ip: "192.168.1.50", ram_gb: 64, role: inference, user: myuser }
+
+# ── Node assignments ────────────────────────────────
+# Each node gets a list of {model, port} pairs.
+# One vllm-mlx process per entry.
+assignments:
+  msm1:
+    - model: coder
+      port: 8000
+  msm2:
+    - model: coder
+      port: 8000
+  # Multi-model setup example:
+  # msm3:
+  #   - model: coder
+  #     port: 8000
+  #   - model: fast
+  #     port: 8001
