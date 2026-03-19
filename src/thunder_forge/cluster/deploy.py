@@ -180,11 +180,14 @@ def deploy_node(
 
 
 def restart_litellm(config: ClusterConfig) -> bool:
+    from thunder_forge.cluster.config import find_repo_root
+
     rock = config.rock
+    docker_dir = find_repo_root() / "docker"
     result = ssh_run(
         rock.user,
         rock.ip,
-        "cd ~/thunder-forge/docker && docker compose restart litellm",
+        f"cd {docker_dir} && docker compose restart litellm",
         timeout=60,
     )
     return result.returncode == 0

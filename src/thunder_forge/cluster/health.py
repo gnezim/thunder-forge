@@ -24,9 +24,12 @@ def check_docker_services(
     rock_user: str,
     expected_services: tuple[str, ...] = ("litellm", "openwebui", "postgres"),
 ) -> dict[str, bool]:
+    from thunder_forge.cluster.config import find_repo_root
+
     results = {svc: False for svc in expected_services}
+    docker_dir = find_repo_root() / "docker"
     try:
-        proc = ssh_run(rock_user, rock_ip, "cd ~/thunder-forge/docker && docker compose ps --format json", timeout=15)
+        proc = ssh_run(rock_user, rock_ip, f"cd {docker_dir} && docker compose ps --format json", timeout=15)
         if proc.returncode != 0:
             return results
         for line in proc.stdout.strip().splitlines():
