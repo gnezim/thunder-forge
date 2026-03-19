@@ -142,8 +142,8 @@ setup_infra() {
         curl -LsSf https://astral.sh/uv/install.sh | sh
         export PATH="$HOME/.local/bin:$PATH"
         PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
-        grep -qF "$PATH_LINE" ~/.profile 2>/dev/null || echo "$PATH_LINE" >> ~/.profile
-        grep -qF "$PATH_LINE" ~/.bashrc 2>/dev/null || echo "$PATH_LINE" >> ~/.bashrc
+        grep -qF "$PATH_LINE" ~/.zshenv 2>/dev/null || echo "$PATH_LINE" >> ~/.zshenv
+        grep -qF "$PATH_LINE" ~/.zshrc 2>/dev/null || echo "$PATH_LINE" >> ~/.zshrc
     else
         echo "uv already installed"
     fi
