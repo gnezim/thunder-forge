@@ -28,8 +28,6 @@ def generate_plist(
         "--host",
         "0.0.0.0",
         "--continuous-batching",
-        "--max-model-len",
-        str(model.max_context),
     ]
 
     if slot.embedding and embedding_model:
@@ -38,6 +36,7 @@ def generate_plist(
     env_vars = {
         "PATH": f"{user_home}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin",
         "HOME": user_home,
+        "no_proxy": "*",
     }
 
     plist = ET.Element("plist", version="1.0")
@@ -104,6 +103,21 @@ NEWSYSLOG_CONF = """\
 """
 
 
+def upgrade_node_tools(node: Node) -> None:
+    """Best-effort upgrade of uv-managed tools on a node."""
+    if node.role == "inference":
+        uv_path = "/opt/homebrew/bin/uv"
+    else:
+        user_home = f"/home/{node.user}"
+        uv_path = f"{user_home}/.local/bin/uv"
+
+    result = ssh_run(node.user, node.ip, f"{uv_path} tool upgrade --all", timeout=120)
+    if result.returncode != 0:
+        print(f"  Warning: uv tool upgrade failed on {node.ip} (continuing)")
+    else:
+        print(f"  Tools upgraded")
+
+
 def deploy_node(
     node_name: str,
     config: ClusterConfig,
@@ -117,6 +131,8 @@ def deploy_node(
 
     ssh_run(node.user, node.ip, "mkdir -p ~/logs")
     ssh_run(node.user, node.ip, "mkdir -p ~/Library/LaunchAgents")
+
+    upgrade_node_tools(node)
 
     uid_result = ssh_run(node.user, node.ip, "id -u")
     if uid_result.returncode != 0:
