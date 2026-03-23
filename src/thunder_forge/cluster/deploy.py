@@ -118,14 +118,14 @@ NEWSYSLOG_CONF = """\
 
 
 def upgrade_node_tools(node: Node) -> None:
-    """Best-effort upgrade of uv-managed tools on a node."""
-    result = ssh_run(node.user, node.ip, "uv tool upgrade --all", timeout=120, shell=node.shell)
+    """Best-effort upgrade of vllm-mlx on a node."""
+    result = ssh_run(node.user, node.ip, "uv tool upgrade vllm-mlx", timeout=120, shell=node.shell)
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
-        if "nothing to upgrade" in stderr.lower() or "no tools installed" in stderr.lower():
-            print("  No uv tools to upgrade (OK)")
+        if "nothing to upgrade" in stderr.lower() or "not installed" in stderr.lower():
+            print("  vllm-mlx already up to date")
         else:
-            print(f"  Warning: uv tool upgrade failed on {node.ip}: {stderr or 'unknown error'} (continuing)")
+            print(f"  Warning: vllm-mlx upgrade failed: {stderr or 'unknown error'} (continuing)")
     else:
         print("  Tools upgraded")
 
@@ -227,7 +227,7 @@ def restart_litellm(config: ClusterConfig) -> bool:
     result = ssh_run(
         gw.user,
         gw.ip,
-        f"cd {docker_dir} && docker compose restart litellm",
+        f"cd {docker_dir} && docker compose up -d litellm",
         timeout=60,
         shell=gw.shell,
     )
