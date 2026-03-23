@@ -62,13 +62,14 @@ def _check_hf_cached(user: str, ip: str, repo: str, *, hf_cache: str = DEFAULT_H
 
 def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False) -> list[str]:
     errors: list[str] = []
+    infra = config.infra_name
     rock = config.rock
     if dry_run:
-        print(f"  [dry-run] Would download {task.repo} (rev: {task.revision}) on rock")
+        print(f"  [dry-run] Would download {task.repo} (rev: {task.revision}) on {infra}")
         for node_name in task.target_nodes:
             print(f"  [dry-run] Would rsync to {node_name}")
         return errors
-    print(f"  Downloading {task.repo} on rock...")
+    print(f"  Downloading {task.repo} on {infra}...")
     hf_env = f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
     dl_cmd = f"{hf_env} hf download {task.repo} --revision {task.revision}"
     result = ssh_run(rock.user, rock.ip, dl_cmd, timeout=3600, stream=True)
@@ -98,11 +99,12 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
 
 def ensure_convert(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False) -> list[str]:
     errors: list[str] = []
+    infra = config.infra_name
     rock = config.rock
     if dry_run:
         print(f"  [dry-run] Would download {task.repo}, convert (q={task.quantize}), sync to {task.target_nodes}")
         return errors
-    print(f"  Downloading source {task.repo} on rock...")
+    print(f"  Downloading source {task.repo} on {infra}...")
     hf_env = f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
     dl_result = ssh_run(rock.user, rock.ip, f"{hf_env} hf download {task.repo}", timeout=3600, stream=True)
     if dl_result.returncode != 0:
@@ -157,13 +159,14 @@ def ensure_local(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fals
 
 def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False) -> list[str]:
     errors: list[str] = []
+    infra = config.infra_name
     rock = config.rock
-    # Download weights on rock first, then rsync to nodes (same pattern as HF models)
+    # Download weights on infra node first, then rsync to nodes (same pattern as HF models)
     if task.weight_repo:
         if dry_run:
-            print(f"  [dry-run] Would download weights {task.weight_repo} on rock")
+            print(f"  [dry-run] Would download weights {task.weight_repo} on {infra}")
         else:
-            print(f"  Downloading weights {task.weight_repo} on rock...")
+            print(f"  Downloading weights {task.weight_repo} on {infra}...")
             hf_env = f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
             dl_cmd = f"{hf_env} hf download {task.weight_repo}"
             dl_result = ssh_run(rock.user, rock.ip, dl_cmd, timeout=3600, stream=True)
@@ -207,8 +210,8 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
     return errors
 
 
-def _needs_rock_download(tasks: list[ModelTask]) -> bool:
-    """Return True if any task will download models on rock."""
+def _needs_infra_download(tasks: list[ModelTask]) -> bool:
+    """Return True if any task will download models on the infra node."""
     for task in tasks:
         if task.source_type in ("huggingface", "convert"):
             return True
@@ -225,7 +228,7 @@ def run_ensure_models(
 ) -> bool:
     tasks = resolve_model_tasks(config, target_node=target_node)
 
-    if _needs_rock_download(tasks) and "HF_HOME" not in os.environ:
+    if _needs_infra_download(tasks) and "HF_HOME" not in os.environ:
         print(
             "ERROR: HF_HOME is not set. Without it, models download to ~/.cache/huggingface "
             "on the root partition, which likely has insufficient space.\n"

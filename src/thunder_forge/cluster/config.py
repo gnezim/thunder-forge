@@ -60,12 +60,16 @@ class ClusterConfig:
         return {k: v for k, v in self.nodes.items() if v.role == "inference"}
 
     @property
-    def rock(self) -> Node:
-        for node in self.nodes.values():
-            if node.role == "infra":
-                return node
+    def infra_name(self) -> str:
+        for k, v in self.nodes.items():
+            if v.role == "infra":
+                return k
         msg = "No infra node found in config"
         raise ValueError(msg)
+
+    @property
+    def rock(self) -> Node:
+        return self.nodes[self.infra_name]
 
 
 def _parse_model_source(raw: dict) -> ModelSource:
