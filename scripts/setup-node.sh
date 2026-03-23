@@ -3,45 +3,49 @@ set -eu
 
 # Thunder Forge — Node Bootstrap Script
 # Usage:
-#   zsh setup-node.sh node       # Mac Studio inference node (macOS)
-#   bash setup-node.sh gateway   # Infrastructure/gateway node (Linux)
-#
-# All paths are configurable via environment variables or a .env file:
-#   TF_DIR          — thunder-forge clone location      (default: ~/thunder-forge)
-#   TF_LOG_DIR      — inference node log directory      (default: ~/logs)
-#   TF_SSH_KEY      — SSH key path                      (default: ~/.ssh/id_ed25519)
-#   TF_REPO_URL     — git clone URL                     (default: https://github.com/shared-goals/thunder-forge.git)
-#   HF_HOME         — HuggingFace cache directory       (default: ~/.cache/huggingface)
-#   TF_DISABLE_SLEEP — disable macOS sleep on node       (default: true, set "false" to skip)
-#
-# Place a .env file next to this script or at ~/.thunder-forge.env
+#   zsh setup-node.sh node              # Mac Studio compute node (macOS)
+#   bash setup-node.sh gateway          # Gateway node (Linux)
+#   setup-node.sh node --check          # Verify setup without installing
+#   setup-node.sh gateway --check       # Verify gateway setup
 
 ROLE="${1:-}"
+CHECK_ONLY="${2:-}"
 
-if [ -z "$ROLE" ]; then
-    echo "Usage: $0 <node|gateway>"
+if [ -z "$ROLE" ] || { [ "$ROLE" != "node" ] && [ "$ROLE" != "gateway" ]; }; then
+    echo "Usage: $0 <node|gateway> [--check]"
     exit 1
 fi
 
-# ── Load .env (script-local first, then home dir) ─────
+# ── Load .env ─────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 for envfile in "$SCRIPT_DIR/../.env" "$SCRIPT_DIR/.env" "$HOME/.thunder-forge.env"; do
     if [ -f "$envfile" ]; then
-        # Source only lines matching KEY=VALUE, skip comments and blanks.
-        # Existing env vars take precedence (won't overwrite).
         while IFS= read -r line || [ -n "$line" ]; do
-            line="${line%%#*}"          # strip inline comments
-            # trim whitespace (POSIX-compatible)
-            line="$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            # Strip inline comments and whitespace
+            line="${line%%#*}"
+            line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
             [ -z "$line" ] && continue
-            key="${line%%=*}"
-            value="${line#*=}"
-            value="${value#\"}" && value="${value%\"}"  # strip double quotes
-            value="${value#\'}" && value="${value%\'}"  # strip single quotes
-            value="$(echo "$value" | sed "s|^~|$HOME|")"  # expand tilde
-            # Only set if not already in environment
-            eval "current=\${$key:-}"
-            [ -z "$current" ] && export "$key=$value"
+            case "$line" in
+                *=*)
+                    key="${line%%=*}"
+                    value="${line#*=}"
+                    # Strip surrounding quotes
+                    case "$value" in
+                        \"*\") value="${value#\"}"; value="${value%\"}" ;;
+                        \'*\') value="${value#\'}"; value="${value%\'}" ;;
+                    esac
+                    # Expand leading tilde
+                    case "$value" in
+                        "~"*) value="$HOME${value#\~}" ;;
+                    esac
+                    # Only set if not already in environment
+                    eval "current=\${$key:-}"
+                    [ -z "$current" ] && export "$key=$value"
+                    ;;
+                *)
+                    echo "Warning: cannot parse .env line: $line"
+                    ;;
+            esac
         done < "$envfile"
         echo "Loaded config from $envfile"
     fi
@@ -49,156 +53,302 @@ done
 
 # ── Configurable paths ────────────────────────────────
 TF_DIR="${TF_DIR:-$HOME/thunder-forge}"
-TF_DIR="$(echo "$TF_DIR" | sed "s|^~|$HOME|")"
+case "$TF_DIR" in "~"*) TF_DIR="$HOME${TF_DIR#\~}" ;; esac
 TF_LOG_DIR="${TF_LOG_DIR:-$HOME/logs}"
-TF_LOG_DIR="$(echo "$TF_LOG_DIR" | sed "s|^~|$HOME|")"
+case "$TF_LOG_DIR" in "~"*) TF_LOG_DIR="$HOME${TF_LOG_DIR#\~}" ;; esac
 TF_SSH_KEY="${TF_SSH_KEY:-$HOME/.ssh/id_ed25519}"
-TF_SSH_KEY="$(echo "$TF_SSH_KEY" | sed "s|^~|$HOME|")"
+case "$TF_SSH_KEY" in "~"*) TF_SSH_KEY="$HOME${TF_SSH_KEY#\~}" ;; esac
 TF_REPO_URL="${TF_REPO_URL:-https://github.com/shared-goals/thunder-forge.git}"
 
-echo "=== Thunder Forge Node Bootstrap ==="
-echo "Role: $ROLE"
-echo "TF_DIR=$TF_DIR"
-echo ""
+# ── Helpers ───────────────────────────────────────────
+STEP_NUM=0
+TOTAL_STEPS=0
 
-# ── Shared helpers ──────────────────────────────────
+step() {
+    STEP_NUM=$((STEP_NUM + 1))
+    echo ""
+    echo "[$STEP_NUM/$TOTAL_STEPS] $1"
+}
+
+ok()   { echo "  ✓ $1"; }
+fail() { echo "  ✗ $1"; }
+warn() { echo "  ! $1"; }
 
 append_if_missing() {
-    # Usage: append_if_missing "line content" file1 file2 ...
     line="$1"; shift
     for f in "$@"; do
         grep -qF "$line" "$f" 2>/dev/null || echo "$line" >> "$f"
     done
 }
 
-upgrade_uv_tools() {
-    echo "Upgrading uv tools..."
-    uv tool upgrade --all 2>/dev/null || true
+# ── Pre-checks ────────────────────────────────────────
+preflight() {
+    echo "Checking prerequisites..."
+    errors=0
+
+    if [ "$(id -u)" = "0" ]; then
+        fail "Running as root — run as a regular user instead"
+        errors=$((errors + 1))
+    else
+        ok "Running as $(whoami)"
+    fi
+
+    if command -v curl >/dev/null 2>&1; then
+        ok "curl available"
+    else
+        fail "curl not found — install: xcode-select --install (macOS) or apt install curl (Linux)"
+        errors=$((errors + 1))
+    fi
+
+    if curl -sI --connect-timeout 5 https://github.com >/dev/null 2>&1; then
+        ok "Internet reachable"
+    else
+        fail "Cannot reach github.com — check network/proxy"
+        errors=$((errors + 1))
+    fi
+
+    if [ "$errors" -gt 0 ]; then
+        echo ""
+        echo "Fix the issues above and retry."
+        exit 1
+    fi
+
+    # Prompt for sudo upfront (needed for pmset on macOS, usermod on Linux)
+    echo ""
+    echo "Some steps need sudo (sleep disable, Docker group)."
+    echo "Enter your password now if prompted:"
+    sudo -v || true
 }
 
-# ── Role setup functions ────────────────────────────
-
-setup_node() {
-    echo "--- Setting up inference node (macOS) ---"
+# ── Verify functions (used by --check and after setup) ─
+verify_node() {
     echo ""
+    echo "Verifying node setup..."
+    errors=0
 
-    # 1. Homebrew
-    if ! command -v brew >/dev/null 2>&1; then
-        echo "Installing Homebrew..."
+    if command -v brew >/dev/null 2>&1; then
+        ok "brew $(brew --version 2>/dev/null | head -1) at $(command -v brew)"
+    else
+        fail "Homebrew not found"
+        errors=$((errors + 1))
+    fi
+
+    if command -v uv >/dev/null 2>&1; then
+        ok "uv $(uv --version 2>/dev/null) at $(command -v uv)"
+    else
+        fail "uv not found"
+        errors=$((errors + 1))
+    fi
+
+    if command -v vllm-mlx >/dev/null 2>&1; then
+        ok "vllm-mlx installed"
+    else
+        fail "vllm-mlx not found"
+        errors=$((errors + 1))
+    fi
+
+    if [ -d "$TF_LOG_DIR" ]; then
+        ok "Log directory: $TF_LOG_DIR"
+    else
+        fail "Log directory missing: $TF_LOG_DIR"
+        errors=$((errors + 1))
+    fi
+
+    if [ "$errors" -gt 0 ]; then
+        echo ""
+        echo "$errors issues found."
+        return 1
+    else
+        echo ""
+        echo "Node setup verified — all OK."
+        return 0
+    fi
+}
+
+verify_gateway() {
+    echo ""
+    echo "Verifying gateway setup..."
+    errors=0
+
+    if command -v docker >/dev/null 2>&1; then
+        ok "docker $(docker --version 2>/dev/null)"
+    else
+        fail "Docker not found"
+        errors=$((errors + 1))
+    fi
+
+    if command -v uv >/dev/null 2>&1; then
+        ok "uv $(uv --version 2>/dev/null)"
+    else
+        fail "uv not found"
+        errors=$((errors + 1))
+    fi
+
+    if command -v hf >/dev/null 2>&1; then
+        ok "hf CLI installed"
+        if hf auth whoami >/dev/null 2>&1; then
+            ok "HuggingFace authenticated"
+        else
+            warn "HuggingFace not authenticated — run: hf auth login"
+        fi
+    else
+        fail "hf CLI not found"
+        errors=$((errors + 1))
+    fi
+
+    if [ -f "$TF_DIR/pyproject.toml" ]; then
+        ok "thunder-forge cloned at $TF_DIR"
+    else
+        fail "thunder-forge not found at $TF_DIR"
+        errors=$((errors + 1))
+    fi
+
+    # Check Docker Compose services
+    if [ -f "$TF_DIR/docker/docker-compose.yml" ] || [ -f "$TF_DIR/docker/compose.yaml" ]; then
+        cd "$TF_DIR/docker"
+        running=$(docker compose ps --format '{{.Name}} {{.State}}' 2>/dev/null || true)
+        if echo "$running" | grep -q "running"; then
+            ok "Docker Compose services running"
+        else
+            fail "Docker Compose services not running — run: cd $TF_DIR/docker && docker compose up -d"
+            errors=$((errors + 1))
+        fi
+    fi
+
+    if [ "$errors" -gt 0 ]; then
+        echo ""
+        echo "$errors issues found."
+        return 1
+    else
+        echo ""
+        echo "Gateway setup verified — all OK."
+        return 0
+    fi
+}
+
+# ── --check mode ──────────────────────────────────────
+if [ "$CHECK_ONLY" = "--check" ]; then
+    case "$ROLE" in
+        node)    verify_node; exit $? ;;
+        gateway) verify_gateway; exit $? ;;
+    esac
+fi
+
+# ── Setup functions ───────────────────────────────────
+setup_node() {
+    TOTAL_STEPS=6
+    echo "=== Thunder Forge Node Setup ==="
+    echo "TF_DIR=$TF_DIR"
+    echo ""
+    preflight
+
+    step "Installing Homebrew..."
+    if command -v brew >/dev/null 2>&1; then
+        ok "Already installed"
+    else
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
         append_if_missing 'eval "$(/opt/homebrew/bin/brew shellenv)"' ~/.zshenv ~/.zshrc
         eval "$(/opt/homebrew/bin/brew shellenv)"
-    else
-        echo "Homebrew already installed"
+        ok "Installed"
     fi
 
-    # 2. uv
-    if ! command -v uv >/dev/null 2>&1; then
-        echo "Installing uv..."
+    step "Installing uv..."
+    if command -v uv >/dev/null 2>&1; then
+        ok "Already installed"
+    else
         curl -LsSf https://astral.sh/uv/install.sh | sh
         export PATH="$HOME/.local/bin:$PATH"
         append_if_missing 'export PATH="$HOME/.local/bin:$PATH"' ~/.zshenv ~/.zshrc
-    else
-        echo "uv already installed"
+        ok "Installed"
     fi
 
-    # 3. vllm-mlx
-    if ! command -v vllm-mlx >/dev/null 2>&1; then
-        echo "Installing vllm-mlx..."
+    step "Installing vllm-mlx..."
+    if command -v vllm-mlx >/dev/null 2>&1; then
+        ok "Already installed"
+        echo "  Upgrading..."
+        uv tool upgrade --all 2>/dev/null || true
+    else
         uv tool install vllm-mlx
-    else
-        echo "vllm-mlx already installed"
+        ok "Installed"
     fi
 
-    # 4. Disable macOS sleep (optional)
+    step "Configuring PATH..."
+    append_if_missing 'eval "$(/opt/homebrew/bin/brew shellenv)"' ~/.zshenv ~/.zshrc
+    append_if_missing 'export PATH="$HOME/.local/bin:$PATH"' ~/.zshenv ~/.zshrc
+    ok "~/.zshenv and ~/.zshrc updated"
+
+    step "Disabling macOS sleep..."
     if [ "${TF_DISABLE_SLEEP:-true}" = "true" ]; then
-        echo "Disabling macOS sleep..."
         sudo pmset -a sleep 0 displaysleep 0 disksleep 0
+        ok "Sleep disabled"
     else
-        echo "Skipping sleep disable (TF_DISABLE_SLEEP=false)"
+        ok "Skipped (TF_DISABLE_SLEEP=false)"
     fi
 
-    # 5. Create logs directory
+    step "Creating directories..."
     mkdir -p "$TF_LOG_DIR"
+    ok "Log directory: $TF_LOG_DIR"
 
-    # 6. Upgrade all uv tools to latest
-    upgrade_uv_tools
+    verify_node
 
     echo ""
-    echo "=== Node setup complete ==="
-    echo "  Homebrew: $(brew --version | head -1)"
-    echo "  uv:       $(uv --version)"
-    echo "  vllm-mlx: $(vllm-mlx --version 2>/dev/null || echo 'installed')"
-    echo "  Logs:     $TF_LOG_DIR"
-    echo ""
-    echo "Next steps:"
-    echo "  1. Ensure SSH key from infra node is in ~/.ssh/authorized_keys"
-    echo "  2. From the infra node, run: uv run thunder-forge deploy --node <this-node>"
+    echo "Next: deploy from your workstation with 'uv run thunder-forge deploy'"
 }
 
 setup_gateway() {
-    echo "--- Setting up gateway node ---"
+    TOTAL_STEPS=8
+    echo "=== Thunder Forge Gateway Setup ==="
+    echo "TF_DIR=$TF_DIR"
     echo ""
+    preflight
 
-    # 1. Docker Engine
-    if ! command -v docker >/dev/null 2>&1; then
-        echo "Installing Docker Engine..."
+    step "Installing Docker..."
+    if command -v docker >/dev/null 2>&1; then
+        ok "Already installed"
+    else
         curl -fsSL https://get.docker.com | sh
         sudo usermod -aG docker "$USER"
-        echo "Log out and back in for docker group to take effect,"
-        echo "or run: newgrp docker"
-    else
-        echo "Docker already installed"
+        ok "Installed (log out and back in for group to take effect)"
     fi
 
-    # 2. uv
-    if ! command -v uv >/dev/null 2>&1; then
-        echo "Installing uv..."
+    step "Installing uv..."
+    if command -v uv >/dev/null 2>&1; then
+        ok "Already installed"
+    else
         curl -LsSf https://astral.sh/uv/install.sh | sh
         export PATH="$HOME/.local/bin:$PATH"
         append_if_missing 'export PATH="$HOME/.local/bin:$PATH"' ~/.zshenv ~/.zshrc
-    else
-        echo "uv already installed"
+        ok "Installed"
     fi
 
-    # 3. hf (HuggingFace CLI) — always force-install with socksio for proxy support
-    echo "Installing/upgrading HuggingFace CLI (hf)..."
+    step "Installing HuggingFace CLI..."
     uv tool install --force huggingface_hub --with socksio
-
-    # 4. Check HuggingFace auth
+    ok "hf installed with socksio"
     if command -v hf >/dev/null 2>&1 && hf auth whoami >/dev/null 2>&1; then
-        echo "HuggingFace auth: $(hf auth whoami 2>/dev/null | head -1)"
+        ok "HuggingFace authenticated"
     else
-        echo "WARNING: HuggingFace not authenticated. Gated models will fail to download."
-        echo "  Run: hf auth login"
+        warn "Not authenticated — run: hf auth login"
     fi
 
-    # 5. Check proxy env vars
-    if [ -z "${HTTP_PROXY:-}" ] && [ -z "${HTTPS_PROXY:-}" ]; then
-        echo "WARNING: HTTP_PROXY/HTTPS_PROXY not set. Outbound downloads may fail."
-    else
-        echo "Proxy: ${HTTPS_PROXY:-${HTTP_PROXY}}"
-    fi
-
-    # 6. Clone thunder-forge
-    if [ ! -d "$TF_DIR" ]; then
-        echo "Cloning thunder-forge..."
-        git clone "$TF_REPO_URL" "$TF_DIR"
-    else
-        echo "thunder-forge already cloned"
+    step "Cloning thunder-forge..."
+    if [ -d "$TF_DIR/.git" ]; then
+        ok "Already cloned"
         cd "$TF_DIR" && git pull
+    else
+        git clone "$TF_REPO_URL" "$TF_DIR"
+        ok "Cloned to $TF_DIR"
     fi
 
-    # 7. Install dependencies
+    step "Installing Python dependencies..."
     cd "$TF_DIR"
-    echo "Installing Python dependencies..."
     uv sync
+    uv tool upgrade --all 2>/dev/null || true
+    ok "Dependencies installed"
 
-    upgrade_uv_tools
-
-    # 8. Generate docker/.env with random secrets
-    if [ ! -f "$TF_DIR/docker/.env" ]; then
-        echo "Generating docker/.env with random secrets..."
+    step "Generating secrets..."
+    if [ -f "$TF_DIR/docker/.env" ]; then
+        ok "docker/.env already exists"
+    else
         cat > "$TF_DIR/docker/.env" <<ENVEOF
 LITELLM_MASTER_KEY=sk-$(openssl rand -hex 16)
 POSTGRES_PASSWORD=$(openssl rand -hex 16)
@@ -208,46 +358,46 @@ WEBUI_SECRET_KEY=$(openssl rand -hex 16)
 WEBUI_AUTH=true
 ENABLE_SIGNUP=true
 ENVEOF
-        echo "  Save these credentials! See $TF_DIR/docker/.env"
-    else
-        echo "docker/.env already exists"
+        ok "Generated docker/.env — save these credentials!"
     fi
 
-    # 9. Start Docker Compose
-    echo "Starting Docker Compose stack..."
+    step "Starting Docker Compose..."
     cd "$TF_DIR/docker"
     docker compose up -d
+    echo "  Waiting for services..."
+    attempt=0
+    max_attempts=12
+    while [ "$attempt" -lt "$max_attempts" ]; do
+        attempt=$((attempt + 1))
+        if curl -sI http://localhost:4000/health >/dev/null 2>&1; then
+            ok "LiteLLM healthy (port 4000)"
+            break
+        fi
+        if [ "$attempt" -eq "$max_attempts" ]; then
+            warn "LiteLLM not responding yet — check: docker compose logs litellm"
+        else
+            sleep 5
+        fi
+    done
 
-    # 10. Generate SSH key
+    step "SSH key..."
     if [ -f "$TF_SSH_KEY" ]; then
-        echo "SSH key already exists: $TF_SSH_KEY"
+        ok "Key exists: $TF_SSH_KEY"
     else
         mkdir -p "$(dirname "$TF_SSH_KEY")"
-        echo "Generating SSH key..."
         ssh-keygen -t ed25519 -f "$TF_SSH_KEY" -N ""
+        ok "Generated: $TF_SSH_KEY"
     fi
 
-    echo ""
-    echo "=== Gateway setup complete ==="
-    echo "  Docker:       $(docker --version)"
-    echo "  uv:           $(uv --version)"
-    echo "  hf:           $(hf version 2>/dev/null || echo 'not installed')"
-    echo "  Compose:      running (check: docker compose ps)"
+    verify_gateway
+
     echo ""
     echo "Next steps:"
-    echo "  1. Copy SSH public key to each inference node:"
-    echo "     ssh-copy-id -i $TF_SSH_KEY <user>@<inference-node-ip>"
-    echo "  2. Run: uv run thunder-forge ensure-models"
-    echo "  3. Run: uv run thunder-forge deploy"
-    echo "  4. Set up GitHub Actions runner (needs token from GitHub UI)"
+    echo "  1. Copy SSH key to each node: ssh-copy-id -i $TF_SSH_KEY <user>@<node-ip>"
+    echo "  2. Run: uv run thunder-forge deploy"
 }
 
 case "$ROLE" in
-    node)      setup_node ;;
-    gateway)   setup_gateway ;;
-    *)
-        echo "Unknown role: $ROLE"
-        echo "Usage: $0 <node|gateway>"
-        exit 1
-        ;;
+    node)    setup_node ;;
+    gateway) setup_gateway ;;
 esac
