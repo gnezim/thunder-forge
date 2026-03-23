@@ -30,9 +30,9 @@ def config_path(tmp_path: Path) -> Path:
             max_context: 32768
 
         nodes:
-          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
-          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
-          msm2: { ip: "192.168.1.102", ram_gb: 128, user: "admin", role: inference }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: gateway }
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: node }
+          msm2: { ip: "192.168.1.102", ram_gb: 128, user: "admin", role: node }
 
         assignments:
           msm1:

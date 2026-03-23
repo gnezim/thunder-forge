@@ -39,7 +39,12 @@ class Node:
     ip: str
     ram_gb: int
     user: str = ""
-    role: str = "inference"
+    role: str = "node"
+    # Resolved during pre-flight — None until populated
+    platform: str | None = None
+    shell: str | None = None
+    home_dir: str | None = None
+    homebrew_prefix: str | None = None
 
 
 @dataclass
@@ -56,20 +61,33 @@ class ClusterConfig:
     assignments: dict[str, list[Assignment]] = field(default_factory=dict)
 
     @property
-    def inference_nodes(self) -> dict[str, Node]:
-        return {k: v for k, v in self.nodes.items() if v.role == "inference"}
+    def compute_nodes(self) -> dict[str, Node]:
+        return {k: v for k, v in self.nodes.items() if v.role == "node"}
 
     @property
-    def infra_name(self) -> str:
+    def gateway_name(self) -> str:
         for k, v in self.nodes.items():
-            if v.role == "infra":
+            if v.role == "gateway":
                 return k
-        msg = "No infra node found in config"
+        msg = "No gateway node found in config"
         raise ValueError(msg)
 
     @property
+    def gateway(self) -> Node:
+        return self.nodes[self.gateway_name]
+
+    # --- Backwards-compatible aliases ---
+    @property
+    def inference_nodes(self) -> dict[str, Node]:
+        return self.compute_nodes
+
+    @property
+    def infra_name(self) -> str:
+        return self.gateway_name
+
+    @property
     def rock(self) -> Node:
-        return self.nodes[self.infra_name]
+        return self.gateway
 
 
 def _parse_model_source(raw: dict) -> ModelSource:
@@ -110,17 +128,26 @@ def load_cluster_config(path: Path) -> ClusterConfig:
 
     models = {k: _parse_model(v) for k, v in raw.get("models", {}).items()}
 
+    _ROLE_MIGRATION = {"inference": "node", "infra": "gateway"}
+
     nodes = {}
     for k, v in raw.get("nodes", {}).items():
-        role = v.get("role", "inference")
+        raw_role = v.get("role", "node")
+        role = _ROLE_MIGRATION.get(raw_role, raw_role)
+        if raw_role != role:
+            import warnings
+
+            warnings.warn(
+                f"Node '{k}': role '{raw_role}' is deprecated, use '{role}' instead",
+                DeprecationWarning,
+                stacklevel=1,
+            )
         if v.get("user"):
             user = v["user"]
         elif os.environ.get("TF_SSH_USER"):
             user = os.environ["TF_SSH_USER"]
-        elif role == "infra":
-            user = os.getlogin()
         else:
-            user = "admin"
+            user = os.environ.get("USER", "unknown")
         nodes[k] = Node(ip=v["ip"], ram_gb=v["ram_gb"], user=user, role=role)
 
     assignments: dict[str, list[Assignment]] = {}

@@ -29,8 +29,8 @@ def assignments_yaml(tmp_path: Path) -> Path:
             max_context: 131072
 
         nodes:
-          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
-          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: gateway }
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: node }
 
         assignments:
           msm1:
@@ -49,17 +49,22 @@ def test_load_cluster_config(assignments_yaml: Path) -> None:
     assert config.models["coder"].disk_gb == 44.8
     assert "msm1" in config.nodes
     assert config.nodes["msm1"].ip == "192.168.1.101"
-    assert config.nodes["msm1"].role == "inference"
+    assert config.nodes["msm1"].role == "node"
     assert "rock" in config.nodes
-    assert config.nodes["rock"].role == "infra"
+    assert config.nodes["rock"].role == "gateway"
     assert len(config.assignments["msm1"]) == 1
     assert config.assignments["msm1"][0].model == "coder"
     assert config.assignments["msm1"][0].port == 8000
 
 
-def test_load_cluster_config_user_defaults(tmp_path: Path) -> None:
-    """Inference defaults to 'admin', infra defaults to current OS user."""
-    import os
+def test_load_cluster_config_user_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both node and gateway default to the current OS user when no YAML user or TF_SSH_USER is set."""
+    import thunder_forge.cluster.config as config_module
+
+    monkeypatch.setenv("USER", "testuser")
+    monkeypatch.delenv("TF_SSH_USER", raising=False)
+    # Point find_repo_root to tmp_path so no real .env is loaded (which could set TF_SSH_USER)
+    monkeypatch.setattr(config_module, "find_repo_root", lambda: tmp_path)
 
     content = dedent("""\
         models:
@@ -67,8 +72,8 @@ def test_load_cluster_config_user_defaults(tmp_path: Path) -> None:
             source: { type: huggingface, repo: "test/coder" }
             disk_gb: 10
         nodes:
-          rock: { ip: "192.168.1.61", ram_gb: 32, role: infra }
-          msm1: { ip: "192.168.1.101", ram_gb: 128, role: inference }
+          rock: { ip: "192.168.1.61", ram_gb: 32, role: gateway }
+          msm1: { ip: "192.168.1.101", ram_gb: 128, role: node }
         assignments:
           msm1:
             - model: coder
@@ -77,8 +82,41 @@ def test_load_cluster_config_user_defaults(tmp_path: Path) -> None:
     p = tmp_path / "node-assignments.yaml"
     p.write_text(content)
     config = load_cluster_config(p)
-    assert config.nodes["msm1"].user == "admin"
-    assert config.nodes["rock"].user == os.getlogin()
+    assert config.nodes["msm1"].user == "testuser"
+    assert config.nodes["rock"].user == "testuser"
+
+
+def test_load_cluster_config_role_migration(tmp_path: Path) -> None:
+    """Old role names (inference, infra) are migrated with a deprecation warning."""
+    content = dedent("""\
+        models:
+          coder:
+            source: { type: huggingface, repo: "test/coder" }
+            disk_gb: 10
+        nodes:
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
+        assignments:
+          msm1:
+            - model: coder
+              port: 8000
+    """)
+    p = tmp_path / "node-assignments.yaml"
+    p.write_text(content)
+    with pytest.warns(DeprecationWarning, match="deprecated"):
+        config = load_cluster_config(p)
+    assert config.nodes["msm1"].role == "node"
+    assert config.nodes["rock"].role == "gateway"
+
+
+def test_node_resolved_fields_default_to_none(assignments_yaml: Path) -> None:
+    """Resolved fields are None after initial load — populated later by pre-flight."""
+    config = load_cluster_config(assignments_yaml)
+    for node in config.nodes.values():
+        assert node.platform is None
+        assert node.shell is None
+        assert node.home_dir is None
+        assert node.homebrew_prefix is None
 
 
 def test_load_cluster_config_user_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -89,7 +127,7 @@ def test_load_cluster_config_user_from_env(tmp_path: Path, monkeypatch: pytest.M
             source: { type: huggingface, repo: "test/coder" }
             disk_gb: 10
         nodes:
-          msm1: { ip: "192.168.1.101", ram_gb: 128, role: inference }
+          msm1: { ip: "192.168.1.101", ram_gb: 128, role: node }
         assignments:
           msm1:
             - model: coder
@@ -119,8 +157,8 @@ def overloaded_yaml(tmp_path: Path) -> Path:
             max_context: 32768
 
         nodes:
-          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
-          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: node }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: gateway }
 
         assignments:
           msm1:
@@ -155,8 +193,8 @@ def multi_model_yaml(tmp_path: Path) -> Path:
             max_context: 131072
 
         nodes:
-          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
-          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: node }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: gateway }
 
         assignments:
           msm1:
@@ -187,8 +225,8 @@ def test_validate_memory_uses_ram_gb_override(tmp_path: Path) -> None:
             serving: cli
 
         nodes:
-          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
-          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: node }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: gateway }
 
         assignments:
           msm1:
@@ -243,8 +281,8 @@ def test_generate_litellm_config_embedding_slot(tmp_path: Path) -> None:
             serving: embedding
 
         nodes:
-          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
-          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: node }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: gateway }
 
         assignments:
           msm1:
@@ -277,8 +315,8 @@ def test_generate_litellm_config_skips_cli_serving(tmp_path: Path) -> None:
             serving: cli
 
         nodes:
-          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: inference }
-          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: infra }
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: node }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: gateway }
 
         assignments:
           msm1:
