@@ -52,26 +52,23 @@ services:
     image: ghcr.io/open-webui/open-webui:latest
     container_name: openwebui
     restart: unless-stopped
-    ports:
-      - "${WEBUI_PORT:-8080}:8080"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    network_mode: host
     volumes:
       - openwebui-data:/app/backend/data
     environment:
-      OPENAI_API_BASE_URLS: ${LITELLM_URL:-http://host.docker.internal:4000/v1}
+      OPENAI_API_BASE_URLS: http://127.0.0.1:4000/v1
       OPENAI_API_KEYS: ${LITELLM_MASTER_KEY:-sk-local-cluster-key}
       ENABLE_OLLAMA_API: "false"
       WEBUI_AUTH: ${WEBUI_AUTH:-true}
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-change-this-secret}
       WEBUI_NAME: LLM Cluster
       ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
+      PORT: "${WEBUI_PORT:-8080}"
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:${WEBUI_PORT:-8080}/health"]
       interval: 15s
       timeout: 5s
       retries: 3
-    networks: [infra]
 
 networks:
   infra:
