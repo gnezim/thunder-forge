@@ -6,7 +6,7 @@ from textwrap import dedent
 
 import pytest
 
-from thunder_forge.cluster.config import load_cluster_config
+from thunder_forge.cluster.config import Assignment, Model, ModelSource, Node, load_cluster_config
 from thunder_forge.cluster.deploy import generate_plist
 
 
@@ -36,11 +36,75 @@ def config_path(tmp_path: Path) -> Path:
     return p
 
 
+def test_generate_plist_uses_resolved_fields() -> None:
+    """Plist uses node.home_dir and node.homebrew_prefix, not hardcoded paths."""
+    node = Node(
+        ip="192.168.1.101",
+        ram_gb=128,
+        user="admin",
+        role="node",
+        home_dir="/Users/admin",
+        homebrew_prefix="/opt/homebrew",
+    )
+    model = Model(source=ModelSource(type="huggingface", repo="test/model"), disk_gb=10)
+    slot = Assignment(model="test", port=8000)
+    xml_str = generate_plist(model, slot, node)
+    assert "/Users/admin/.local/bin/vllm-mlx" in xml_str
+    assert "/opt/homebrew/bin" in xml_str
+    assert "/Users/admin/logs/" in xml_str
+
+
+def test_generate_plist_non_default_homebrew() -> None:
+    """Plist uses custom homebrew prefix (e.g. Intel Mac)."""
+    node = Node(
+        ip="192.168.1.101",
+        ram_gb=128,
+        user="admin",
+        role="node",
+        home_dir="/Users/admin",
+        homebrew_prefix="/usr/local",
+    )
+    model = Model(source=ModelSource(type="huggingface", repo="test/model"), disk_gb=10)
+    slot = Assignment(model="test", port=8000)
+    xml_str = generate_plist(model, slot, node)
+    assert "/usr/local/bin" in xml_str
+    assert "/opt/homebrew" not in xml_str
+
+
+def test_generate_plist_no_homebrew() -> None:
+    """Plist works without homebrew (Linux node)."""
+    node = Node(
+        ip="192.168.1.101",
+        ram_gb=128,
+        user="admin",
+        role="node",
+        home_dir="/home/admin",
+        homebrew_prefix=None,
+    )
+    model = Model(source=ModelSource(type="huggingface", repo="test/model"), disk_gb=10)
+    slot = Assignment(model="test", port=8000)
+    xml_str = generate_plist(model, slot, node)
+    assert "/home/admin/.local/bin/vllm-mlx" in xml_str
+    assert "/opt/homebrew" not in xml_str
+
+
+def test_generate_plist_requires_resolved_fields() -> None:
+    """Plist raises error if resolved fields are missing."""
+    node = Node(ip="192.168.1.101", ram_gb=128, user="admin", role="node")
+    model = Model(source=ModelSource(type="huggingface", repo="test/model"), disk_gb=10)
+    slot = Assignment(model="test", port=8000)
+    with pytest.raises(ValueError, match="pre-flight"):
+        generate_plist(model, slot, node)
+
+
 def test_generate_plist_basic(config_path: Path) -> None:
     config = load_cluster_config(config_path)
     model = config.models["coder"]
     slot = config.assignments["msm1"][0]
     node = config.nodes["msm1"]
+    # Simulate pre-flight populating resolved fields
+    node.home_dir = "/Users/admin"
+    node.homebrew_prefix = "/opt/homebrew"
 
     xml_str = generate_plist(model, slot, node)
 
@@ -60,8 +124,6 @@ def test_generate_plist_basic(config_path: Path) -> None:
 def test_generate_plist_with_embedding(config_path: Path) -> None:
     config = load_cluster_config(config_path)
 
-    from thunder_forge.cluster.config import Assignment, Model, ModelSource
-
     config.models["embedding"] = Model(
         source=ModelSource(type="huggingface", repo="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"),
         disk_gb=0.5,
@@ -71,6 +133,8 @@ def test_generate_plist_with_embedding(config_path: Path) -> None:
     model = config.models["coder"]
     slot = Assignment(model="coder", port=8000, embedding=True)
     node = config.nodes["msm1"]
+    node.home_dir = "/Users/admin"
+    node.homebrew_prefix = "/opt/homebrew"
 
     xml_str = generate_plist(model, slot, node, embedding_model=config.models.get("embedding"))
     assert "--embedding-model" in xml_str
