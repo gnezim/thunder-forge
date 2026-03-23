@@ -54,9 +54,11 @@ def resolve_model_tasks(
     return list(task_map.values())
 
 
-def _check_hf_cached(user: str, ip: str, repo: str, *, hf_cache: str = DEFAULT_HF_CACHE) -> bool:
+def _check_hf_cached(
+    user: str, ip: str, repo: str, *, hf_cache: str = DEFAULT_HF_CACHE, shell: str | None = None
+) -> bool:
     hf_path = repo.replace("/", "--")
-    result = ssh_run(user, ip, f"test -d {hf_cache}/models--{hf_path}/snapshots")
+    result = ssh_run(user, ip, f"test -d {hf_cache}/models--{hf_path}/snapshots", shell=shell)
     return result.returncode == 0
 
 
@@ -83,7 +85,7 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
         src_path = f"{gw.user}@{gw.ip}:{HF_CACHE}/models--{hf_cache_path}/"
     for node_name in task.target_nodes:
         node = config.nodes[node_name]
-        if _check_hf_cached(node.user, node.ip, task.repo):
+        if _check_hf_cached(node.user, node.ip, task.repo, shell=node.shell):
             print(f"  {task.model_name} already cached on {node_name}")
             continue
         dest_path = f"{node.user}@{node.ip}:{DEFAULT_HF_CACHE}/models--{hf_cache_path}/"

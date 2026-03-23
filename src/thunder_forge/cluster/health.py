@@ -26,13 +26,17 @@ def check_gateway_services(
     gateway_ip: str,
     gateway_user: str,
     expected_services: tuple[str, ...] = ("litellm", "openwebui", "postgres"),
+    *,
+    shell: str | None = None,
 ) -> dict[str, bool]:
     """Check Docker Compose services on gateway node."""
     from thunder_forge.cluster.config import find_repo_root
 
     results = {svc: False for svc in expected_services}
     docker_dir = find_repo_root() / "docker"
-    proc = ssh_run(gateway_user, gateway_ip, f"cd {docker_dir} && docker compose ps --format json", timeout=15)
+    proc = ssh_run(
+        gateway_user, gateway_ip, f"cd {docker_dir} && docker compose ps --format json", timeout=15, shell=shell
+    )
     if proc.returncode != 0:
         return results
     for line in proc.stdout.strip().splitlines():
@@ -67,7 +71,7 @@ def run_health_checks(config: ClusterConfig) -> bool:
 
     print("\n=== Gateway ===")
     gw = config.gateway
-    docker_health = check_gateway_services(gw.ip, gw.user)
+    docker_health = check_gateway_services(gw.ip, gw.user, shell=gw.shell)
     display_names = {"litellm": "LiteLLM", "openwebui": "Open WebUI", "postgres": "PostgreSQL"}
     for svc, healthy in docker_health.items():
         status = "✓" if healthy else "✗"
