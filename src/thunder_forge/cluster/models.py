@@ -6,7 +6,14 @@ import os
 from dataclasses import dataclass, field
 
 from thunder_forge.cluster.config import ClusterConfig
-from thunder_forge.cluster.ssh import _is_local, run_local, ssh_run
+from thunder_forge.cluster.ssh import _is_local, _ssh_key_args, run_local, ssh_run
+
+
+def _rsync_ssh_cmd() -> str:
+    """Build the SSH command string for rsync -e, including key if configured."""
+    parts = ["ssh", *_ssh_key_args(), "-o", "StrictHostKeyChecking=no"]
+    return " ".join(parts)
+
 
 # HF cache dir on the machine running the CLI (gateway), respects HF_HOME env var
 HF_CACHE = os.environ.get("HF_HOME", "~/.cache/huggingface") + "/hub"
@@ -91,7 +98,7 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
         dest_path = f"{node.user}@{node.ip}:{DEFAULT_HF_CACHE}/models--{hf_cache_path}/"
         print(f"  Syncing {task.model_name} to {node_name}...")
         rsync_result = run_local(
-            ["rsync", "-az", "--progress", "-e", "ssh -o StrictHostKeyChecking=no", src_path, dest_path],
+            ["rsync", "-az", "--progress", "-e", _rsync_ssh_cmd(), src_path, dest_path],
             timeout=3600,
         )
         if rsync_result.returncode != 0:
@@ -140,7 +147,7 @@ def ensure_convert(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fa
         src = f"{convert_node.user}@{convert_node.ip}:{output_dir}"
         dest = f"{node.user}@{node.ip}:{output_dir}"
         rsync_result = run_local(
-            ["rsync", "-az", "-e", "ssh -o StrictHostKeyChecking=no", src, dest],
+            ["rsync", "-az", "-e", _rsync_ssh_cmd(), src, dest],
             timeout=3600,
         )
         if rsync_result.returncode != 0:
@@ -206,7 +213,7 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
             dest_path = f"{node.user}@{node.ip}:{DEFAULT_HF_CACHE}/models--{hf_cache_path}/"
             print(f"  Syncing weights {task.weight_repo} to {node_name}...")
             rsync_result = run_local(
-                ["rsync", "-az", "--progress", "-e", "ssh -o StrictHostKeyChecking=no", src_path, dest_path],
+                ["rsync", "-az", "--progress", "-e", _rsync_ssh_cmd(), src_path, dest_path],
                 timeout=3600,
             )
             if rsync_result.returncode != 0:

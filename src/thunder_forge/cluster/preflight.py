@@ -7,7 +7,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from thunder_forge.cluster.config import ClusterConfig, Node
-from thunder_forge.cluster.ssh import _is_local
+from thunder_forge.cluster.ssh import _is_local, _ssh_key_args
 
 PREFLIGHT_TIMEOUT = 30
 SSH_CONNECT_TIMEOUT = 10
@@ -72,6 +72,7 @@ def _probe_node(name: str, node: Node) -> list[str]:
             result = subprocess.run(
                 [
                     "ssh",
+                    *_ssh_key_args(),
                     "-o",
                     f"ConnectTimeout={SSH_CONNECT_TIMEOUT}",
                     "-o",

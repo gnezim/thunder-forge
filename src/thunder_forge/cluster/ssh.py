@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import platform
 import shlex
 import socket
@@ -11,6 +12,16 @@ import subprocess
 def _login_shell() -> str:
     """Return the login shell for the local machine: zsh on macOS, bash on Linux."""
     return "zsh" if platform.system() == "Darwin" else "bash"
+
+
+def _ssh_key_args() -> list[str]:
+    """Return -i <key> args if TF_SSH_KEY is set, otherwise empty."""
+    key = os.environ.get("TF_SSH_KEY")
+    if key:
+        key = os.path.expanduser(key)
+        if os.path.isfile(key):
+            return ["-i", key]
+    return []
 
 
 def _is_local(ip: str) -> bool:
@@ -47,8 +58,12 @@ def ssh_run(
             timeout=timeout,
         )
     wrapped = f"{effective_shell} -lc {shlex.quote(cmd)}"
+    ssh_cmd = [
+        "ssh", *_ssh_key_args(), "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
+        f"{user}@{ip}", wrapped,
+    ]
     return subprocess.run(
-        ["ssh", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no", f"{user}@{ip}", wrapped],
+        ssh_cmd,
         capture_output=capture,
         text=True,
         timeout=timeout,
@@ -82,8 +97,12 @@ def scp_content(
             text=True,
             timeout=15,
         )
+    ssh_cmd = [
+        "ssh", *_ssh_key_args(), "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
+        f"{user}@{ip}", f"cat > {remote_path}",
+    ]
     return subprocess.run(
-        ["ssh", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no", f"{user}@{ip}", f"cat > {remote_path}"],
+        ssh_cmd,
         input=content,
         capture_output=True,
         text=True,
