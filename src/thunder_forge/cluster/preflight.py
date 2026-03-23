@@ -15,6 +15,11 @@ SSH_CONNECT_TIMEOUT = 10
 def build_probe_script(role: str) -> str:
     """Build a shell script that probes node environment in one SSH call."""
     lines = [
+        # Prepend common tool locations — sh doesn't source login profiles
+        'export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"',
+        # Source shell profiles if they exist (picks up custom PATH additions)
+        '. "$HOME/.zshenv" 2>/dev/null || true',
+        '. "$HOME/.profile" 2>/dev/null || true',
         'echo "@@PROBE_START@@"',
         'echo "PLATFORM=$(uname -s)"',
         'echo "SHELL_PATH=$(basename $SHELL)"',
