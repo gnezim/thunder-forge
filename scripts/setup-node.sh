@@ -161,13 +161,9 @@ setup_gateway() {
         echo "uv already installed"
     fi
 
-    # 3. hf (HuggingFace CLI)
-    if ! command -v hf >/dev/null 2>&1; then
-        echo "Installing HuggingFace CLI (hf)..."
-        uv tool install --force huggingface_hub --with socksio
-    else
-        echo "HuggingFace CLI (hf) already installed"
-    fi
+    # 3. hf (HuggingFace CLI) — always force-install with socksio for proxy support
+    echo "Installing/upgrading HuggingFace CLI (hf)..."
+    uv tool install --force huggingface_hub --with socksio
 
     # 4. Check HuggingFace auth
     if command -v hf >/dev/null 2>&1 && hf auth whoami >/dev/null 2>&1; then
