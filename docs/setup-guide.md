@@ -22,7 +22,7 @@ SSH into your infrastructure node, clone the repo and run the setup script:
 ```bash
 git clone https://github.com/shared-goals/thunder-forge.git ~/thunder-forge
 cd ~/thunder-forge
-zsh scripts/setup-node.sh gateway
+bash scripts/setup-node.sh gateway
 ```
 
 > **Note:** `git clone` is always the first step on any node. The setup script and all configuration live in the repo.

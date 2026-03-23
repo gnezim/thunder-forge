@@ -1,10 +1,10 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 # Thunder Forge — Node Bootstrap Script
 # Usage:
-#   bash setup-node.sh node      # Mac Studio inference node
-#   bash setup-node.sh gateway   # Radxa ROCK infrastructure/gateway node
+#   zsh setup-node.sh node       # Mac Studio inference node (macOS)
+#   bash setup-node.sh gateway   # Infrastructure/gateway node (Linux)
 #
 # All paths are configurable via environment variables or a .env file:
 #   TF_DIR          — thunder-forge clone location      (default: ~/thunder-forge)
@@ -18,41 +18,42 @@ set -euo pipefail
 
 ROLE="${1:-}"
 
-if [[ -z "$ROLE" ]]; then
+if [ -z "$ROLE" ]; then
     echo "Usage: $0 <node|gateway>"
     exit 1
 fi
 
 # ── Load .env (script-local first, then home dir) ─────
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 for envfile in "$SCRIPT_DIR/../.env" "$SCRIPT_DIR/.env" "$HOME/.thunder-forge.env"; do
-    if [[ -f "$envfile" ]]; then
+    if [ -f "$envfile" ]; then
         # Source only lines matching KEY=VALUE, skip comments and blanks.
         # Existing env vars take precedence (won't overwrite).
-        while IFS= read -r line || [[ -n "$line" ]]; do
+        while IFS= read -r line || [ -n "$line" ]; do
             line="${line%%#*}"          # strip inline comments
-            line="${line#"${line%%[![:space:]]*}"}"  # trim leading whitespace
-            line="${line%"${line##*[![:space:]]}"}"  # trim trailing whitespace
-            [[ -z "$line" ]] && continue
+            # trim whitespace (POSIX-compatible)
+            line="$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            [ -z "$line" ] && continue
             key="${line%%=*}"
             value="${line#*=}"
             value="${value#\"}" && value="${value%\"}"  # strip double quotes
             value="${value#\'}" && value="${value%\'}"  # strip single quotes
-            value="${value/#\~/$HOME}"                  # expand tilde
-            [[ -z "${!key:-}" ]] && export "$key=$value"
+            value="$(echo "$value" | sed "s|^~|$HOME|")"  # expand tilde
+            # Only set if not already in environment
+            eval "current=\${$key:-}"
+            [ -z "$current" ] && export "$key=$value"
         done < "$envfile"
         echo "Loaded config from $envfile"
     fi
 done
 
 # ── Configurable paths ────────────────────────────────
-# Expand ~ to $HOME (tilde doesn't expand when read from .env files)
 TF_DIR="${TF_DIR:-$HOME/thunder-forge}"
-TF_DIR="${TF_DIR/#\~/$HOME}"
+TF_DIR="$(echo "$TF_DIR" | sed "s|^~|$HOME|")"
 TF_LOG_DIR="${TF_LOG_DIR:-$HOME/logs}"
-TF_LOG_DIR="${TF_LOG_DIR/#\~/$HOME}"
+TF_LOG_DIR="$(echo "$TF_LOG_DIR" | sed "s|^~|$HOME|")"
 TF_SSH_KEY="${TF_SSH_KEY:-$HOME/.ssh/id_ed25519}"
-TF_SSH_KEY="${TF_SSH_KEY/#\~/$HOME}"
+TF_SSH_KEY="$(echo "$TF_SSH_KEY" | sed "s|^~|$HOME|")"
 TF_REPO_URL="${TF_REPO_URL:-https://github.com/shared-goals/thunder-forge.git}"
 
 echo "=== Thunder Forge Node Bootstrap ==="
@@ -64,7 +65,7 @@ echo ""
 
 append_if_missing() {
     # Usage: append_if_missing "line content" file1 file2 ...
-    local line="$1"; shift
+    line="$1"; shift
     for f in "$@"; do
         grep -qF "$line" "$f" 2>/dev/null || echo "$line" >> "$f"
     done
@@ -82,7 +83,7 @@ setup_node() {
     echo ""
 
     # 1. Homebrew
-    if ! command -v brew &>/dev/null; then
+    if ! command -v brew >/dev/null 2>&1; then
         echo "Installing Homebrew..."
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
         append_if_missing 'eval "$(/opt/homebrew/bin/brew shellenv)"' ~/.zshenv ~/.zshrc
@@ -92,7 +93,7 @@ setup_node() {
     fi
 
     # 2. uv
-    if ! command -v uv &>/dev/null; then
+    if ! command -v uv >/dev/null 2>&1; then
         echo "Installing uv..."
         curl -LsSf https://astral.sh/uv/install.sh | sh
         export PATH="$HOME/.local/bin:$PATH"
@@ -102,15 +103,15 @@ setup_node() {
     fi
 
     # 3. vllm-mlx
-    if ! command -v vllm-mlx &>/dev/null; then
+    if ! command -v vllm-mlx >/dev/null 2>&1; then
         echo "Installing vllm-mlx..."
         uv tool install vllm-mlx
     else
         echo "vllm-mlx already installed"
     fi
 
-    # 4. Disable macOS sleep (optional, pass --no-sleep-disable to skip)
-    if [[ "${TF_DISABLE_SLEEP:-true}" == "true" ]]; then
+    # 4. Disable macOS sleep (optional)
+    if [ "${TF_DISABLE_SLEEP:-true}" = "true" ]; then
         echo "Disabling macOS sleep..."
         sudo pmset -a sleep 0 displaysleep 0 disksleep 0
     else
@@ -131,16 +132,16 @@ setup_node() {
     echo "  Logs:     $TF_LOG_DIR"
     echo ""
     echo "Next steps:"
-    echo "  1. Ensure SSH key from rock is in ~/.ssh/authorized_keys"
-    echo "  2. Run 'thunder-forge deploy --node <this-node>' from gateway"
+    echo "  1. Ensure SSH key from infra node is in ~/.ssh/authorized_keys"
+    echo "  2. Run 'thunder-forge deploy --node <this-node>' from infra node"
 }
 
 setup_gateway() {
-    echo "--- Setting up gateway node (Linux ARM64) ---"
+    echo "--- Setting up gateway node ---"
     echo ""
 
     # 1. Docker Engine
-    if ! command -v docker &>/dev/null; then
+    if ! command -v docker >/dev/null 2>&1; then
         echo "Installing Docker Engine..."
         curl -fsSL https://get.docker.com | sh
         sudo usermod -aG docker "$USER"
@@ -151,7 +152,7 @@ setup_gateway() {
     fi
 
     # 2. uv
-    if ! command -v uv &>/dev/null; then
+    if ! command -v uv >/dev/null 2>&1; then
         echo "Installing uv..."
         curl -LsSf https://astral.sh/uv/install.sh | sh
         export PATH="$HOME/.local/bin:$PATH"
@@ -161,7 +162,7 @@ setup_gateway() {
     fi
 
     # 3. hf (HuggingFace CLI)
-    if ! command -v hf &>/dev/null; then
+    if ! command -v hf >/dev/null 2>&1; then
         echo "Installing HuggingFace CLI (hf)..."
         uv tool install --force huggingface_hub --with socksio
     else
@@ -169,7 +170,7 @@ setup_gateway() {
     fi
 
     # 4. Check HuggingFace auth
-    if command -v hf &>/dev/null && hf auth whoami &>/dev/null; then
+    if command -v hf >/dev/null 2>&1 && hf auth whoami >/dev/null 2>&1; then
         echo "HuggingFace auth: $(hf auth whoami 2>/dev/null | head -1)"
     else
         echo "WARNING: HuggingFace not authenticated. Gated models will fail to download."
@@ -177,14 +178,14 @@ setup_gateway() {
     fi
 
     # 5. Check proxy env vars
-    if [[ -z "${HTTP_PROXY:-}" && -z "${HTTPS_PROXY:-}" ]]; then
+    if [ -z "${HTTP_PROXY:-}" ] && [ -z "${HTTPS_PROXY:-}" ]; then
         echo "WARNING: HTTP_PROXY/HTTPS_PROXY not set. Outbound downloads may fail."
     else
         echo "Proxy: ${HTTPS_PROXY:-${HTTP_PROXY}}"
     fi
 
     # 6. Clone thunder-forge
-    if [[ ! -d "$TF_DIR" ]]; then
+    if [ ! -d "$TF_DIR" ]; then
         echo "Cloning thunder-forge..."
         git clone "$TF_REPO_URL" "$TF_DIR"
     else
@@ -200,7 +201,7 @@ setup_gateway() {
     upgrade_uv_tools
 
     # 8. Generate docker/.env with random secrets
-    if [[ ! -f "$TF_DIR/docker/.env" ]]; then
+    if [ ! -f "$TF_DIR/docker/.env" ]; then
         echo "Generating docker/.env with random secrets..."
         cat > "$TF_DIR/docker/.env" <<ENVEOF
 LITELLM_MASTER_KEY=sk-$(openssl rand -hex 16)
@@ -222,7 +223,7 @@ ENVEOF
     docker compose up -d
 
     # 10. Generate SSH key
-    if [[ -f "$TF_SSH_KEY" ]]; then
+    if [ -f "$TF_SSH_KEY" ]; then
         echo "SSH key already exists: $TF_SSH_KEY"
     else
         mkdir -p "$(dirname "$TF_SSH_KEY")"
