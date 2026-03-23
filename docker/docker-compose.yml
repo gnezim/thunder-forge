@@ -35,7 +35,7 @@ services:
       - "--host"
       - "0.0.0.0"
       - "--num_workers"
-      - "4"
+      - "${LITELLM_WORKERS:-4}"
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-cluster-key}
       DATABASE_URL: postgresql://litellm:${POSTGRES_PASSWORD:-litellm-local}@127.0.0.1:${PG_PORT:-5432}/litellm
