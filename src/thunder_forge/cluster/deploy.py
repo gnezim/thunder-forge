@@ -174,17 +174,20 @@ def deploy_node(
         label = f"com.vllm-mlx-{slot.port}"
         domain = f"gui/{uid}"
 
-        # Note: 2>/dev/null on bootout is intentional — bootout errors when service isn't
-        # loaded (expected on first deploy). Justified deviation from spec Section 4.1.
+        # Bootout first (ignore errors — service may not be loaded yet), then bootstrap
         plist_path = f"~/Library/LaunchAgents/{plist_name}"
-        cmd = f"launchctl bootout {domain}/{label} 2>/dev/null; launchctl bootstrap {domain} {plist_path}"
-        result = ssh_run(node.user, node.ip, cmd, shell=node.shell)
+        ssh_run(node.user, node.ip, f"launchctl bootout {domain}/{label} 2>/dev/null || true", shell=node.shell)
+        result = ssh_run(node.user, node.ip, f"launchctl bootstrap {domain} {plist_path}", shell=node.shell)
         if result.returncode != 0:
+            bootstrap_err = (result.stderr or "").strip() + " " + (result.stdout or "").strip()
+            # Fall back to kickstart if bootstrap fails (e.g. already registered)
             result = ssh_run(node.user, node.ip, f"launchctl kickstart -kp {domain}/{label}", shell=node.shell)
             if result.returncode != 0:
+                kickstart_err = (result.stderr or "").strip() + " " + (result.stdout or "").strip()
                 errors.append(
                     f"{node_name}: failed to start service on port {slot.port}\n"
-                    f"  stderr: {(result.stderr or '').strip()}\n"
+                    f"  bootstrap: {bootstrap_err.strip()}\n"
+                    f"  kickstart: {kickstart_err.strip()}\n"
                     f"  → Try: thunder-forge deploy --node {node_name}"
                 )
 
