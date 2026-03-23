@@ -59,7 +59,7 @@ services:
     volumes:
       - openwebui-data:/app/backend/data
     environment:
-      OPENAI_API_BASE_URLS: http://host.docker.internal:4000/v1
+      OPENAI_API_BASE_URLS: ${LITELLM_URL:-http://host.docker.internal:4000/v1}
       OPENAI_API_KEYS: ${LITELLM_MASTER_KEY:-sk-local-cluster-key}
       ENABLE_OLLAMA_API: "false"
       WEBUI_AUTH: ${WEBUI_AUTH:-true}
