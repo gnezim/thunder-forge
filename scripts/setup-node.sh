@@ -110,11 +110,7 @@ setup_node() {
         echo "vllm-mlx already installed"
     fi
 
-    # 4. hf (HuggingFace CLI) — always force-install with socksio for proxy support
-    echo "Installing/upgrading HuggingFace CLI (hf)..."
-    uv tool install --force huggingface_hub --with socksio
-
-    # 5. Disable macOS sleep (optional)
+    # 4. Disable macOS sleep (optional)
     if [ "${TF_DISABLE_SLEEP:-true}" = "true" ]; then
         echo "Disabling macOS sleep..."
         sudo pmset -a sleep 0 displaysleep 0 disksleep 0
@@ -122,10 +118,10 @@ setup_node() {
         echo "Skipping sleep disable (TF_DISABLE_SLEEP=false)"
     fi
 
-    # 6. Create logs directory
+    # 5. Create logs directory
     mkdir -p "$TF_LOG_DIR"
 
-    # 7. Upgrade all uv tools to latest
+    # 6. Upgrade all uv tools to latest
     upgrade_uv_tools
 
     echo ""
