@@ -64,6 +64,7 @@ services:
       WEBUI_NAME: LLM Cluster
       ENABLE_SIGNUP: ${ENABLE_SIGNUP:-true}
       HOST: "0.0.0.0"
+      UVICORN_HOST: "0.0.0.0"
       PORT: "${WEBUI_PORT:-8080}"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:${WEBUI_PORT:-8080}/health"]
