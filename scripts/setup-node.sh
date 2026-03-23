@@ -110,7 +110,15 @@ setup_node() {
         echo "vllm-mlx already installed"
     fi
 
-    # 4. Disable macOS sleep (optional)
+    # 4. hf (HuggingFace CLI) — for direct model downloads on inference nodes
+    if ! command -v hf >/dev/null 2>&1; then
+        echo "Installing HuggingFace CLI (hf)..."
+        uv tool install huggingface_hub
+    else
+        echo "HuggingFace CLI (hf) already installed"
+    fi
+
+    # 5. Disable macOS sleep (optional)
     if [ "${TF_DISABLE_SLEEP:-true}" = "true" ]; then
         echo "Disabling macOS sleep..."
         sudo pmset -a sleep 0 displaysleep 0 disksleep 0
@@ -118,10 +126,10 @@ setup_node() {
         echo "Skipping sleep disable (TF_DISABLE_SLEEP=false)"
     fi
 
-    # 5. Create logs directory
+    # 6. Create logs directory
     mkdir -p "$TF_LOG_DIR"
 
-    # 6. Upgrade all uv tools to latest
+    # 7. Upgrade all uv tools to latest
     upgrade_uv_tools
 
     echo ""
