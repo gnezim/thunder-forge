@@ -118,7 +118,11 @@ def upgrade_node_tools(node: Node) -> None:
     """Best-effort upgrade of uv-managed tools on a node."""
     result = ssh_run(node.user, node.ip, "uv tool upgrade --all", timeout=120, shell=node.shell)
     if result.returncode != 0:
-        print(f"  Warning: uv tool upgrade failed on {node.ip} (continuing)")
+        stderr = (result.stderr or "").strip()
+        if "nothing to upgrade" in stderr.lower() or "no tools installed" in stderr.lower():
+            print("  No uv tools to upgrade (OK)")
+        else:
+            print(f"  Warning: uv tool upgrade failed on {node.ip}: {stderr or 'unknown error'} (continuing)")
     else:
         print("  Tools upgraded")
 
