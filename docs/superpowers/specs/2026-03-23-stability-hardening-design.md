@@ -32,19 +32,37 @@ class Node:
     role: str       # "node" or "gateway" (see Section 5)
     user: str
 
-    # Resolved during pre-flight
-    platform: str           # "darwin" or "linux"
-    shell: str              # "zsh" or "bash" — detected, not assumed
-    home_dir: str           # "/Users/admin" or "/home/gnezim"
-    homebrew_prefix: str | None  # "/opt/homebrew", "/usr/local", or None
+    # Resolved during pre-flight — None until populated
+    platform: str | None = None         # "darwin" or "linux"
+    shell: str | None = None            # "zsh" or "bash" — detected, not assumed
+    home_dir: str | None = None         # "/Users/admin" or "/home/gnezim"
+    homebrew_prefix: str | None = None  # "/opt/homebrew", "/usr/local", or None
 ```
 
-**Population:** During pre-flight, SSH to each node once and run a batched probe: `uname -s`, `echo $SHELL`, `echo $HOME`, `brew --prefix 2>/dev/null`. Cache results on Node object.
+**Resolved field lifecycle:** These fields are `None` until pre-flight populates them. Commands that need resolved fields (deploy, ensure-models) require pre-flight to have run — they check `node.home_dir is not None` and raise a clear error ("Run pre-flight first or remove --skip-preflight") if fields are missing. Commands that don't need them (generate-config, validate-memory) never access them, so they work without pre-flight.
+
+**Population:** During pre-flight, SSH to each node once and run a single batched probe script over one SSH connection:
+
+```bash
+echo "@@PROBE_START@@"
+echo "PLATFORM=$(uname -s)"
+echo "SHELL_PATH=$(basename $SHELL)"
+# Verify the detected shell actually exists
+command -v $(basename $SHELL) >/dev/null 2>&1 && echo "SHELL_OK=1" || echo "SHELL_OK=0"
+echo "HOME_DIR=$HOME"
+test -d "$HOME" && echo "HOME_OK=1" || echo "HOME_OK=0"
+brew --prefix 2>/dev/null && echo "BREW_OK=1" || echo "BREW_OK=0"
+echo "@@PROBE_END@@"
+```
+
+Output is parsed in Python by splitting on the delimiters. One SSH connection per node, all probes batched.
 
 **Downstream consumers stop guessing:**
 - deploy.py reads `node.home_dir` and `node.homebrew_prefix` for plist generation
 - ssh.py reads `node.shell` for command wrapping (no more `zsh ... || bash ...` fallback)
 - models.py reads `node.home_dir` for rsync destination paths
+
+**User resolution:** Replace `os.getlogin()` in config.py with `os.environ.get("USER", "unknown")`. This is deterministic and works in headless/container environments. The pre-flight `whoami` check validates the user can actually SSH, but config parsing must not require SSH.
 
 **Eliminates:**
 - Hardcoded `/Users/{user}` in deploy.py
@@ -74,15 +92,16 @@ New file: `src/thunder_forge/cluster/preflight.py`. Runs automatically before de
 | uv available | `which uv` | "uv not found on msm1 — run setup-node.sh first" |
 | vllm-mlx available (nodes) | `uv tool list \| grep vllm` | "vllm-mlx not installed on msm1" |
 | Homebrew (macOS only) | `brew --prefix` | "Homebrew not found on msm1" |
-| Disk space | `df -g $HOME` | "msm1 has 4GB free — need ~50GB for models" |
+| Disk space | `df -k $HOME` (POSIX, parse in Python) | "msm1 has 4GB free — need ~50GB for models" |
 | HF_HOME writable (gateway) | `test -w $HF_HOME` | "HF_HOME not writable on rock" |
 | Docker running (gateway) | `docker info` | "Docker not running on rock" |
 
 **Behavior:**
-- All checks on all target nodes run in parallel (one SSH connection per node, batched probe commands)
+- All checks on all target nodes run in parallel (one SSH connection per node, all probes batched into a single script — see Section 1 for probe format)
+- Global pre-flight timeout: 30 seconds. Unreachable nodes fail at SSH ConnectTimeout (10s) without blocking others.
 - Collects all failures, prints numbered checklist, exits non-zero
 - On success: populates Node resolved fields, continues to actual command
-- Skippable with `--skip-preflight`
+- Skippable with `--skip-preflight` (but deploy/ensure-models will fail if resolved fields are needed and missing)
 
 **Example failure output:**
 ```
@@ -111,9 +130,9 @@ Pre-flight: 4 nodes OK (msm1, msm2, msm3, msm4), 1 gateway OK (rock)
 No way to review what a command will do before executing. When something breaks halfway through 20 SSH operations, unclear what already ran and whether it's safe to retry.
 
 ### Design
-`--dry-run` flag on deploy, ensure-models, and generate-config. Runs pre-flight (real SSH to validate), then prints the execution plan without executing.
+`--dry-run` flag on deploy and generate-config. ensure-models already has `--dry-run` — improve its output to match the richer format below. Runs pre-flight (real SSH to validate), then prints the execution plan without executing.
 
-**Implementation:** Each operation function (deploy_node, ensure_huggingface, rsync_to_node, etc.) takes a `dry_run: bool` parameter. In dry-run mode, builds the same plan internally but appends to a step list instead of executing. The plan output is the actual plan the code would follow — not a separate approximation.
+**Implementation:** Each operation function (deploy_node, ensure_huggingface, rsync_to_node, etc.) takes a `dry_run: bool` parameter. In dry-run mode, builds the same plan internally but appends to a step list instead of executing. The plan output is the actual plan the code would follow — not a separate approximation. Note: models.py already accepts `dry_run` throughout — the work here is (a) improving output format and (b) adding dry-run to deploy.py which is the actual gap.
 
 **Example: `thunder-forge deploy --dry-run`**
 ```
@@ -182,6 +201,13 @@ Deploy complete: 3/4 nodes succeeded
 
 **4.5 — Continue on partial failure.** Don't abort on first node failure. Deploy remaining nodes, collect all failures, print summary. 3/4 nodes working is better than 0/4 because msm1 failed first.
 
+Ordering rules for partial failure:
+- LiteLLM restart happens if **at least one node** deployed successfully
+- Health poll only targets successfully-deployed nodes
+- Summary distinguishes "deploy failed" vs "deployed but unhealthy"
+
+**4.6 — Idempotent retry.** All commands are safe to re-run. `deploy --node msm4` after a partial failure redeploys only that node. Stale plist cleanup only removes plists for ports not in current assignments — it never removes plists that match current config.
+
 **Error format — every failure includes three things:**
 ```
 SSH error on msm1 (192.168.1.101):
@@ -199,16 +225,22 @@ SSH error on msm1 (192.168.1.101):
 
 Standardize on `node` and `gateway` everywhere (matches setup-node.sh, more intuitive).
 
-| Current | New |
-|---------|-----|
-| `role: inference` in YAML | `role: node` |
-| `role: infra` in YAML | `role: gateway` |
-| `config.rock` property | `config.gateway` property |
-| `infra_name` property | `gateway_name` property |
-| "infra node" in logs | "gateway" in logs |
-| "inference node" in logs | "node" in logs |
-| `check_inference_node()` | `check_node()` |
-| `check_docker_services()` | `check_gateway_services()` |
+| File | Current | New |
+|------|---------|-----|
+| YAML | `role: inference` | `role: node` |
+| YAML | `role: infra` | `role: gateway` |
+| config.py | `config.rock` property | `config.gateway` property |
+| config.py | `infra_name` property | `gateway_name` property |
+| config.py | `inference_nodes` property (filters `role == "inference"`) | `nodes` property (filters `role == "node"`) |
+| health.py | `check_inference_node()` | `check_node()` |
+| health.py | `check_docker_services()` | `check_gateway_services()` |
+| models.py | `_needs_infra_download()` | `_needs_gateway_download()` |
+| models.py | references to `config.infra_name` | `config.gateway_name` |
+| models.py | `"infra"` string literals in log messages | `"gateway"` |
+| deploy.py | `"infra"` references in restart logic | `"gateway"` |
+| cli.py | all "inference"/"infra" in help text and output | "node"/"gateway" |
+| configs/*.example | `role: infra` / `role: inference` | `role: gateway` / `role: node` |
+| all test files | `role: infra` / `role: inference` in fixtures | `role: gateway` / `role: node` |
 
 **Migration:** Accept both old (`inference`/`infra`) and new (`node`/`gateway`) at parse time. Map old to new. Log deprecation warning if old names used.
 
@@ -223,7 +255,7 @@ Checking prerequisites...
   ✗ curl not found — install: xcode-select --install
 ```
 
-Fail fast if `sudo -n true` fails — tell user to run `sudo -v` first. Don't hang mid-script waiting for password.
+Warn that sudo will be needed for specific steps (pmset, usermod). Prompt explicitly with `sudo -v` at the start of the script so the user sees the password prompt upfront, not buried mid-way. On macOS with TouchID, `sudo -n` always fails — so don't use it as a gating check; just ensure the prompt happens early.
 
 **Step-by-step progress:**
 ```
@@ -260,7 +292,7 @@ Node setup complete. Next: deploy from your workstation.
 ## Section 6: Test Coverage
 
 ### 6a: Fix Existing Failures
-`test_load_cluster_config_user_defaults` — monkeypatch `os.getlogin()` for deterministic result. Update assertion to match actual user resolution logic.
+Replace `os.getlogin()` in config.py with `os.environ.get("USER", "unknown")` (see Section 1). Update `test_load_cluster_config_user_defaults` to monkeypatch `os.environ["USER"]` for deterministic results.
 
 ### 6b: New Test Coverage
 
