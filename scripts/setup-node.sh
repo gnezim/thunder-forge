@@ -110,13 +110,9 @@ setup_node() {
         echo "vllm-mlx already installed"
     fi
 
-    # 4. hf (HuggingFace CLI) — for direct model downloads on inference nodes
-    if ! command -v hf >/dev/null 2>&1; then
-        echo "Installing HuggingFace CLI (hf)..."
-        uv tool install huggingface_hub
-    else
-        echo "HuggingFace CLI (hf) already installed"
-    fi
+    # 4. hf (HuggingFace CLI) — always force-install with socksio for proxy support
+    echo "Installing/upgrading HuggingFace CLI (hf)..."
+    uv tool install --force huggingface_hub --with socksio
 
     # 5. Disable macOS sleep (optional)
     if [ "${TF_DISABLE_SLEEP:-true}" = "true" ]; then
