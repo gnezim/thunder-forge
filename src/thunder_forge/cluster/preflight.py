@@ -7,6 +7,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from thunder_forge.cluster.config import ClusterConfig, Node
+from thunder_forge.cluster.ssh import _is_local
 
 PREFLIGHT_TIMEOUT = 30
 SSH_CONNECT_TIMEOUT = 10
@@ -57,22 +58,33 @@ def _probe_node(name: str, node: Node) -> list[str]:
     errors: list[str] = []
     script = build_probe_script(node.role)
 
+    probe_shell = "zsh" if node.role == "node" else "bash"
     try:
-        result = subprocess.run(
-            [
-                "ssh",
-                "-o",
-                f"ConnectTimeout={SSH_CONNECT_TIMEOUT}",
-                "-o",
-                "StrictHostKeyChecking=no",
-                f"{node.user}@{node.ip}",
-                # Use login shell: zsh on macOS (node), bash on Linux (gateway)
-                f"{'zsh' if node.role == 'node' else 'bash'} -lc {shlex.quote(script)}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=PREFLIGHT_TIMEOUT,
-        )
+        if _is_local(node.ip):
+            # Run probe locally — no SSH needed for the gateway when running on it
+            result = subprocess.run(
+                [probe_shell, "-lc", script],
+                capture_output=True,
+                text=True,
+                timeout=PREFLIGHT_TIMEOUT,
+            )
+        else:
+            result = subprocess.run(
+                [
+                    "ssh",
+                    "-o",
+                    f"ConnectTimeout={SSH_CONNECT_TIMEOUT}",
+                    "-o",
+                    "StrictHostKeyChecking=no",
+                    "-o",
+                    "BatchMode=yes",
+                    f"{node.user}@{node.ip}",
+                    f"{probe_shell} -lc {shlex.quote(script)}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=PREFLIGHT_TIMEOUT,
+            )
     except (subprocess.TimeoutExpired, OSError, TimeoutError):
         return [f"Cannot reach {name} ({node.ip}) — check SSH key and network"]
 
