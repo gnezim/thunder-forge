@@ -6,57 +6,64 @@ End-to-end guide for deploying an MLX inference cluster with Thunder Forge.
 
 Thunder Forge manages two types of nodes:
 
-- **Infrastructure node** (Linux ARM64) — runs LiteLLM proxy, Open WebUI, PostgreSQL via Docker Compose. Acts as the control plane: downloads models, deploys services, runs health checks.
+- **Infrastructure (gateway) node** (Linux) — runs LiteLLM proxy, Open WebUI, PostgreSQL via Docker Compose. Acts as the control plane: downloads models, deploys services, runs health checks.
 - **Inference nodes** (macOS with Apple Silicon) — run vllm-mlx services via launchd. Each node serves one or more models on dedicated ports.
 
 ## Prerequisites
 
 - All nodes on the same LAN with SSH access between them
 - macOS on inference nodes, Linux on infrastructure node
-- Internet access for initial setup (package installs, model downloads)
+- Internet access on the infra node for model downloads (proxy supported via `HTTP_PROXY`/`HTTPS_PROXY`)
 
-## Step 1: Bootstrap the Infrastructure Node
+## Step 1: Configure Environment (before bootstrap)
+
+Create a `.env` file in the project root **before** running the setup script. The same `.env` is used by both `setup-node.sh` and all `thunder-forge` CLI commands.
+
+```bash
+# ~/thunder-forge/.env (infrastructure node)
+TF_SSH_USER=admin
+TF_SSH_KEY=~/.ssh/id_ed25519
+HF_HOME=~/.cache/huggingface
+# Required if infra node uses a proxy for outbound internet:
+# HTTP_PROXY=socks5h://127.0.0.1:1080
+# HTTPS_PROXY=socks5h://127.0.0.1:1080
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TF_SSH_USER` | `admin` (inference) / current user (infra) | Default SSH user for nodes |
+| `TF_SSH_KEY` | `~/.ssh/id_ed25519` | SSH key path |
+| `TF_DIR` | `~/thunder-forge` | Clone location (set if using a non-default path) |
+| `TF_LOG_DIR` | `~/logs` | Log directory on inference nodes |
+| `TF_REPO_URL` | `https://github.com/shared-goals/thunder-forge.git` | Git clone URL |
+| `HF_HOME` | `~/.cache/huggingface` | HuggingFace cache directory (set to external drive if root partition is small) |
+| `TF_DISABLE_SLEEP` | `true` | Disable macOS sleep on inference nodes (set `false` for laptops) |
+
+Per-node user overrides go in `node-assignments.yaml` (see Step 4).
+
+## Step 2: Bootstrap the Infrastructure Node
 
 SSH into your infrastructure node, clone the repo and run the setup script:
 
 ```bash
 git clone https://github.com/shared-goals/thunder-forge.git ~/thunder-forge
 cd ~/thunder-forge
+# Create .env first (see Step 1), then:
 bash scripts/setup-node.sh gateway
 ```
 
-> **Note:** `git clone` is always the first step on any node. The setup script and all configuration live in the repo.
+> **Note:** The script is POSIX-compatible — runs under both `bash` and `zsh`.
 
 This will:
-- Install Docker Engine, `uv`, and `hf` CLI (HuggingFace)
+- Install Docker Engine, `uv`, and `hf` CLI (HuggingFace, with `socksio` for proxy support)
 - Install Python dependencies (`uv sync`)
 - Generate `docker/.env` with random secrets (LiteLLM master key, Postgres password, WebUI credentials)
 - Start Docker Compose (LiteLLM, Open WebUI, PostgreSQL)
 - Generate an SSH keypair for connecting to inference nodes
-- Upgrade all installed tools to latest versions
 
-### Configure environment variables (before running)
+**Save the generated credentials** from `~/thunder-forge/docker/.env`.
 
-Before running the setup script, create a `.env` file in the project root:
-
-```bash
-cp ~/thunder-forge/.env.example ~/thunder-forge/.env
-vi ~/thunder-forge/.env
-```
-
-```bash
-# ~/thunder-forge/.env
-TF_SSH_USER=admin
-TF_SSH_KEY=~/.ssh/id_ed25519
-HF_HOME=~/.cache/huggingface
-# Uncomment if outbound internet goes through a proxy:
-# HTTP_PROXY=socks5h://127.0.0.1:1080
-# HTTPS_PROXY=socks5h://127.0.0.1:1080
-```
-
-This `.env` file is used by both `setup-node.sh` and `thunder-forge` CLI commands. Existing environment variables take precedence.
-
-If outbound internet is filtered through a proxy, uncomment `HTTP_PROXY`/`HTTPS_PROXY` in the `.env` file.
+> **Port conflict:** If port 8080 is already in use, add `WEBUI_PORT=<port>` to `docker/.env` and restart: `docker compose up -d`.
 
 After setup, authenticate with HuggingFace (required for gated models):
 
@@ -64,41 +71,26 @@ After setup, authenticate with HuggingFace (required for gated models):
 hf auth login
 ```
 
-**Save the generated credentials** from `~/thunder-forge/docker/.env`.
-
-## Step 2: Bootstrap Inference Nodes
+## Step 3: Bootstrap Inference Nodes
 
 SSH into each inference node, clone the repo and run the setup script:
 
 ```bash
 git clone https://github.com/shared-goals/thunder-forge.git ~/thunder-forge
 cd ~/thunder-forge
+# Optionally create .env (e.g. TF_DISABLE_SLEEP=false for laptops), then:
 zsh scripts/setup-node.sh node
 ```
 
-> **Note:** Same pattern as the infra node — always clone the repo first.
-
-### Configure environment variables (optional)
-
-Create a `.env` in the project root before running (or edit the existing one):
-
-```bash
-cp ~/thunder-forge/.env.example ~/thunder-forge/.env
-vi ~/thunder-forge/.env
-```
-
-To skip disabling macOS sleep, add `TF_DISABLE_SLEEP=false` to `.env`.
-
 This will:
 - Install Homebrew, `uv`, and `vllm-mlx`
-- Optionally disable macOS sleep
-- Create log directory (`~/logs`)
-- Add `~/.local/bin` to PATH in `~/.zshenv` and `~/.zshrc`
-- Upgrade all installed tools to latest versions
+- Optionally disable macOS sleep (controlled by `TF_DISABLE_SLEEP`)
+- Create log directory (`~/logs`) and LaunchAgents directory
+- Upgrade all installed `uv` tools to latest versions
 
 Repeat for all inference nodes.
 
-## Step 3: Distribute SSH Keys
+## Step 4: Distribute SSH Keys
 
 From the infrastructure node, copy its public key to each inference node:
 
@@ -112,37 +104,9 @@ Verify connectivity:
 ssh -o BatchMode=yes <user>@<inference-node-ip> "echo ok"
 ```
 
-## Step 4: Configure the Project
+## Step 5: Configure the Cluster
 
 All remaining steps run from the **infrastructure node** in `~/thunder-forge`.
-
-### .env (operational config)
-
-The project root `.env` is loaded by the CLI automatically. Copy the template and adjust:
-
-```bash
-cd ~/thunder-forge
-cp .env.example .env
-vi .env
-```
-
-If you already created `.env` during Step 1, it's already in place. Otherwise:
-
-```bash
-cp .env.example .env
-vi .env
-```
-
-This single `.env` file is used by both `thunder-forge` CLI commands and `setup-node.sh`.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TF_SSH_USER` | `admin` (inference) / current user (infra) | Default SSH user for nodes |
-| `TF_SSH_KEY` | `~/.ssh/id_ed25519` | SSH key path |
-| `HF_HOME` | `~/.cache/huggingface` | HuggingFace cache directory |
-| `TF_DISABLE_SLEEP` | `true` | Disable macOS sleep on inference nodes |
-
-Per-node user overrides go in `node-assignments.yaml` (see below).
 
 ### node-assignments.yaml (cluster topology)
 
@@ -174,13 +138,13 @@ models:
     active_params: "9B dense"
     max_context: 262144
 
-# Node inventory
+# Node inventory — one infra node, one or more inference nodes
 nodes:
   rock: { ip: "192.168.1.61", ram_gb: 32, role: infra }
   msm1: { ip: "192.168.1.101", ram_gb: 128, role: inference }
   msm2: { ip: "192.168.1.102", ram_gb: 128, role: inference }
 
-# What runs where
+# What runs where — one vllm-mlx process per entry
 assignments:
   msm1:
     - model: coder
@@ -197,20 +161,16 @@ nodes:
   mynode: { ip: "192.168.1.50", ram_gb: 64, role: inference, user: myuser }
 ```
 
-## Step 5: Download Models
+### Generate LiteLLM config
 
 ```bash
-uv run thunder-forge ensure-models
+uv run thunder-forge generate-config
 ```
 
-Downloads models from HuggingFace on the infra node and syncs them to assigned inference nodes via rsync. Large models can take 20+ minutes. Progress is shown, and downloads are resumable.
-
-If the infra node has limited disk space, set `HF_HOME` to an external drive in `.env`.
-
-Preview without downloading:
+Validates memory budgets and generates `configs/litellm-config.yaml`. Validate without writing:
 
 ```bash
-uv run thunder-forge ensure-models --dry-run
+uv run thunder-forge generate-config --check
 ```
 
 ## Step 6: Deploy
@@ -220,15 +180,14 @@ uv run thunder-forge deploy
 ```
 
 This will:
-1. Run `ensure-models` (idempotent, skip with `--skip-models`)
+1. Download models on the infra node and rsync to inference nodes (`ensure-models`)
 2. Validate memory budgets
 3. Generate LiteLLM proxy config
-4. Upgrade all `uv` tools on each node to latest versions
-5. Deploy launchd plists to inference nodes
-6. Restart LiteLLM proxy
-7. Health-poll each service (up to 180s timeout)
+4. Deploy launchd plists to inference nodes via SSH
+5. Restart LiteLLM proxy
+6. Health-poll each service (up to 180s timeout)
 
-Deploy to a single node (LiteLLM failure is a warning, not an error):
+Deploy to a single node:
 
 ```bash
 uv run thunder-forge deploy --node msm1
@@ -240,21 +199,7 @@ Skip model sync (useful when models are already present):
 uv run thunder-forge deploy --skip-models
 ```
 
-## Step 7: Generate LiteLLM Config (standalone)
-
-If you only need to regenerate the proxy config without a full deploy:
-
-```bash
-uv run thunder-forge generate-config
-```
-
-Validate without writing:
-
-```bash
-uv run thunder-forge generate-config --check
-```
-
-## Step 8: Verify Cluster Health
+## Step 7: Verify Cluster Health
 
 ```bash
 uv run thunder-forge health
@@ -264,24 +209,30 @@ Example output:
 
 ```
 === Inference ===
-  msm1:8000 (coder): healthy
-  msm2:8000 (coder): healthy
+  msm1:8000 (coder): ✅
+  msm2:8000 (coder): ✅
 
 === Infrastructure ===
-  LiteLLM      healthy
-  Open WebUI   healthy
-  PostgreSQL   healthy
+  LiteLLM      ✅
+  Open WebUI   ✅
+  PostgreSQL   ✅
+
+=== Model Assignments ===
+  msm1: coder:8000
+  msm2: coder:8000
 ```
 
 ## Accessing Services
 
-- **LiteLLM API**: `http://<infra-node-ip>:4000` — OpenAI-compatible endpoint
-- **Open WebUI**: `http://<infra-node-ip>:8080` — chat interface (credentials in `docker/.env`)
+- **LiteLLM API**: `http://<infra-ip>:4000` — OpenAI-compatible endpoint
+- **Open WebUI**: `http://<infra-ip>:8080` (or custom `WEBUI_PORT`) — chat interface
+
+Credentials are in `~/thunder-forge/docker/.env`.
 
 Example API call:
 
 ```bash
-curl http://<infra-node-ip>:4000/v1/chat/completions \
+curl http://<infra-ip>:4000/v1/chat/completions \
   -H "Authorization: Bearer $(grep LITELLM_MASTER_KEY ~/thunder-forge/docker/.env | cut -d= -f2)" \
   -H "Content-Type: application/json" \
   -d '{"model": "coder", "messages": [{"role": "user", "content": "Hello"}]}'
@@ -291,7 +242,6 @@ curl http://<infra-node-ip>:4000/v1/chat/completions \
 
 **Model won't load (health check fails):**
 ```bash
-# Check vllm-mlx logs on the inference node
 ssh <user>@<node-ip> "tail -50 ~/logs/vllm-mlx-8000.err"
 ```
 
@@ -302,13 +252,26 @@ ssh <user>@<node-ip> 'launchctl bootout gui/$(id -u)/com.vllm-mlx-8000 2>/dev/nu
 
 **Docker services unhealthy:**
 ```bash
-ssh <user>@<infra-ip> "cd ~/thunder-forge/docker && docker compose ps && docker compose logs --tail=50"
+cd ~/thunder-forge/docker && docker compose ps && docker compose logs --tail=50
+```
+
+**LiteLLM can't reach inference node:**
+```bash
+# Test connectivity from infra node to inference node
+curl -s http://<inference-ip>:8000/v1/models
+```
+
+**Port conflict on Open WebUI:**
+```bash
+# Add to docker/.env:
+echo 'WEBUI_PORT=8081' >> ~/thunder-forge/docker/.env
+cd ~/thunder-forge/docker && docker compose up -d
 ```
 
 **Memory budget exceeded:**
 ```bash
-uv run thunder-forge generate-config --check
-# Shows per-node memory breakdown
+uv run thunder-forge generate-config
+# Shows per-node memory breakdown with ✅/❌
 ```
 
 **Re-deploy after config change:**
@@ -317,15 +280,11 @@ uv run thunder-forge generate-config --check
 uv run thunder-forge deploy
 ```
 
-## Setup Script Variables
-
-These variables configure `scripts/setup-node.sh`. Set them in the project root `.env` file or export as environment variables:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TF_DIR` | `~/thunder-forge` | Clone location |
-| `TF_LOG_DIR` | `~/logs` | Log directory (inference nodes) |
-| `TF_SSH_KEY` | `~/.ssh/id_ed25519` | SSH key path |
-| `TF_REPO_URL` | `https://github.com/shared-goals/thunder-forge.git` | Git clone URL |
-| `HF_HOME` | `~/.cache/huggingface` | HuggingFace cache directory |
-| `TF_DISABLE_SLEEP` | `true` | Disable macOS sleep on inference nodes |
+**LiteLLM fails with `IsADirectoryError`:**
+This happens when `configs/litellm-config.yaml` doesn't exist — Docker creates a directory instead of mounting a file. Fix:
+```bash
+cd ~/thunder-forge/docker && docker compose down
+rm -rf ~/thunder-forge/configs/litellm-config.yaml
+uv run thunder-forge generate-config
+docker compose up -d
+```
