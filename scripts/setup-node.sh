@@ -141,7 +141,7 @@ setup_node() {
     echo ""
     echo "Next steps:"
     echo "  1. Ensure SSH key from infra node is in ~/.ssh/authorized_keys"
-    echo "  2. Run 'thunder-forge deploy --node <this-node>' from infra node"
+    echo "  2. From the infra node, run: uv run thunder-forge deploy --node <this-node>"
 }
 
 setup_gateway() {
