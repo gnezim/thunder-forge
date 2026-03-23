@@ -32,6 +32,7 @@ class Model:
     max_context: int = 0
     serving: str = ""
     notes: str = ""
+    extra_args: list[str] | None = None
 
 
 @dataclass
@@ -112,6 +113,7 @@ def _parse_model(raw: dict) -> Model:
         max_context=raw.get("max_context", 0),
         serving=raw.get("serving", ""),
         notes=raw.get("notes", ""),
+        extra_args=raw.get("extra_args"),
     )
 
 

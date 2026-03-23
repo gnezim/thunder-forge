@@ -41,6 +41,9 @@ def generate_plist(
     if slot.embedding and embedding_model:
         program_args.extend(["--embedding-model", embedding_model.source.repo])
 
+    if model.extra_args:
+        program_args.extend(model.extra_args)
+
     path_parts = [f"{home}/.local/bin", "/usr/bin", "/bin"]
     if node.homebrew_prefix:
         path_parts.insert(1, f"{node.homebrew_prefix}/bin")
