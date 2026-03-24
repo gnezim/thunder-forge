@@ -19,27 +19,21 @@ def generate_plist(
     model: Model,
     slot: Assignment,
     node: Node,
-    *,
-    embedding_model: Model | None = None,
 ) -> str:
     _require_resolved(node, f"port-{slot.port}")
     home = node.home_dir
-    label = f"com.vllm-mlx-{slot.port}"
-    vllm_path = f"{home}/.local/bin/vllm-mlx"
+    label = f"com.mlx-lm-{slot.port}"
+    server_path = f"{home}/.local/bin/mlx_lm.server"
 
     program_args = [
-        vllm_path,
-        "serve",
+        server_path,
+        "--model",
         model.source.repo,
         "--port",
         str(slot.port),
         "--host",
         "0.0.0.0",
-        "--continuous-batching",
     ]
-
-    if slot.embedding and embedding_model:
-        program_args.extend(["--embedding-model", embedding_model.source.repo])
 
     if model.extra_args:
         program_args.extend(model.extra_args)
@@ -51,7 +45,7 @@ def generate_plist(
     env_vars = {
         "PATH": ":".join(path_parts),
         "HOME": home,
-        "no_proxy": "*",
+        "HF_HUB_OFFLINE": "1",
     }
 
     plist = ET.Element("plist", version="1.0")
@@ -93,8 +87,8 @@ def generate_plist(
         ev = ET.SubElement(env_dict, "string")
         ev.text = env_val
 
-    add_key_value(d, "StandardOutPath", make_string(f"{home}/logs/vllm-mlx-{slot.port}.log"))
-    add_key_value(d, "StandardErrorPath", make_string(f"{home}/logs/vllm-mlx-{slot.port}.err"))
+    add_key_value(d, "StandardOutPath", make_string(f"{home}/logs/mlx-lm-{slot.port}.log"))
+    add_key_value(d, "StandardErrorPath", make_string(f"{home}/logs/mlx-lm-{slot.port}.err"))
 
     add_key_value(d, "RunAtLoad", make_true())
     add_key_value(d, "KeepAlive", make_true())
@@ -163,9 +157,7 @@ def deploy_node(
 
     for slot in slots:
         model = config.models[slot.model]
-        embedding_model = config.models.get("embedding") if slot.embedding else None
-
-        plist_xml = generate_plist(model, slot, node, embedding_model=embedding_model)
+        plist_xml = generate_plist(model, slot, node)
         plist_name = f"com.vllm-mlx-{slot.port}.plist"
         remote_plist = f"~/Library/LaunchAgents/{plist_name}"
 

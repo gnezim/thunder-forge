@@ -49,7 +49,7 @@ def test_generate_plist_uses_resolved_fields() -> None:
     model = Model(source=ModelSource(type="huggingface", repo="test/model"), disk_gb=10)
     slot = Assignment(model="test", port=8000)
     xml_str = generate_plist(model, slot, node)
-    assert "/Users/admin/.local/bin/vllm-mlx" in xml_str
+    assert "/Users/admin/.local/bin/mlx_lm.server" in xml_str
     assert "/opt/homebrew/bin" in xml_str
     assert "/Users/admin/logs/" in xml_str
 
@@ -84,7 +84,7 @@ def test_generate_plist_no_homebrew() -> None:
     model = Model(source=ModelSource(type="huggingface", repo="test/model"), disk_gb=10)
     slot = Assignment(model="test", port=8000)
     xml_str = generate_plist(model, slot, node)
-    assert "/home/admin/.local/bin/vllm-mlx" in xml_str
+    assert "/home/admin/.local/bin/mlx_lm.server" in xml_str
     assert "/opt/homebrew" not in xml_str
 
 
@@ -111,31 +111,41 @@ def test_generate_plist_basic(config_path: Path) -> None:
     root = ET.fromstring(xml_str)
     assert root.tag == "plist"
 
-    assert "com.vllm-mlx-8000" in xml_str
+    assert "com.mlx-lm-8000" in xml_str
     assert "mlx-community/Qwen3-Coder-Next-4bit" in xml_str
+    assert "--model" in xml_str
     assert "--port" in xml_str
     assert "8000" in xml_str
-    assert "--continuous-batching" in xml_str
+    assert "--host" in xml_str
+    assert "0.0.0.0" in xml_str
+    assert "--continuous-batching" not in xml_str
     assert "--max-model-len" not in xml_str
-    assert "no_proxy" in xml_str
+    assert "HF_HUB_OFFLINE" in xml_str
     assert "Interactive" in xml_str
 
 
-def test_generate_plist_with_embedding(config_path: Path) -> None:
+def test_generate_plist_with_extra_args(config_path: Path) -> None:
     config = load_cluster_config(config_path)
-
-    config.models["embedding"] = Model(
-        source=ModelSource(type="huggingface", repo="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"),
-        disk_gb=0.5,
-        serving="embedding",
-    )
-
     model = config.models["coder"]
-    slot = Assignment(model="coder", port=8000, embedding=True)
+    model.extra_args = ["--trust-remote-code", "--log-level", "DEBUG"]
+    slot = config.assignments["msm1"][0]
     node = config.nodes["msm1"]
     node.home_dir = "/Users/admin"
     node.homebrew_prefix = "/opt/homebrew"
+    xml_str = generate_plist(model, slot, node)
+    assert "--trust-remote-code" in xml_str
+    assert "DEBUG" in xml_str
 
-    xml_str = generate_plist(model, slot, node, embedding_model=config.models.get("embedding"))
-    assert "--embedding-model" in xml_str
-    assert "Qwen3-Embedding-0.6B-4bit-DWQ" in xml_str
+
+def test_generate_plist_log_paths() -> None:
+    """Logs go to ~/logs/mlx-lm-{port}.log, not /tmp/."""
+    node = Node(
+        ip="192.168.1.101", ram_gb=128, user="admin", role="node",
+        home_dir="/Users/admin", homebrew_prefix="/opt/homebrew",
+    )
+    model = Model(source=ModelSource(type="huggingface", repo="test/model"), disk_gb=10)
+    slot = Assignment(model="test", port=8000)
+    xml_str = generate_plist(model, slot, node)
+    assert "/Users/admin/logs/mlx-lm-8000.log" in xml_str
+    assert "/Users/admin/logs/mlx-lm-8000.err" in xml_str
+    assert "vllm" not in xml_str
