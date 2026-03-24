@@ -121,7 +121,7 @@ def _probe_node(name: str, node: Node) -> list[str]:
 
     if node.role == "node":
         if data.get("MLX_LM_OK") != "1":
-            errors.append(f"{name}: mlx-lm not installed — run: uv tool install --force mlx-lm --with 'httpx[socks]'")
+            print(f"  ⚠ {name}: mlx-lm not installed — deploy will install it")
         if node.platform == "Darwin" and data.get("BREW_OK") != "1":
             errors.append(f"{name}: Homebrew not found on macOS node")
 
