@@ -167,7 +167,8 @@ def deploy_node(
             try:
                 port = int(filename.replace("com.vllm-mlx-", "").replace(".plist", ""))
                 stale_label = f"com.vllm-mlx-{port}"
-                cmd = f"launchctl bootout gui/{uid}/{stale_label} 2>/dev/null; rm ~/Library/LaunchAgents/{stale_label}.plist"
+                bootout = f"launchctl bootout gui/{uid}/{stale_label} 2>/dev/null"
+                cmd = f"{bootout}; rm ~/Library/LaunchAgents/{stale_label}.plist"
                 ssh_run(node.user, node.ip, cmd, shell=node.shell)
             except ValueError:
                 continue

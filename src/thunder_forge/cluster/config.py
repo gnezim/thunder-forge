@@ -56,10 +56,21 @@ class Assignment:
 
 
 @dataclass
+class ExternalEndpoint:
+    model_name: str
+    api_base: str
+    api_key_env: str = ""
+    api_key: str = ""
+    max_input_tokens: int = 0
+    max_output_tokens: int = 0
+
+
+@dataclass
 class ClusterConfig:
     models: dict[str, Model] = field(default_factory=dict)
     nodes: dict[str, Node] = field(default_factory=dict)
     assignments: dict[str, list[Assignment]] = field(default_factory=dict)
+    external_endpoints: list[ExternalEndpoint] = field(default_factory=list)
 
     @property
     def compute_nodes(self) -> dict[str, Node]:
@@ -163,7 +174,19 @@ def load_cluster_config(path: Path) -> ClusterConfig:
             for s in slots
         ]
 
-    return ClusterConfig(models=models, nodes=nodes, assignments=assignments)
+    external_endpoints = [
+        ExternalEndpoint(
+            model_name=ep["model_name"],
+            api_base=ep["api_base"],
+            api_key_env=ep.get("api_key_env", ""),
+            api_key=ep.get("api_key", ""),
+            max_input_tokens=ep.get("max_input_tokens", 0),
+            max_output_tokens=ep.get("max_output_tokens", 0),
+        )
+        for ep in raw.get("external_endpoints", [])
+    ]
+
+    return ClusterConfig(models=models, nodes=nodes, assignments=assignments, external_endpoints=external_endpoints)
 
 
 OS_OVERHEAD_GB = 8
@@ -202,7 +225,7 @@ def generate_litellm_config(config: ClusterConfig) -> str:
             model = config.models[slot.model]
             if model.serving in ("embedding", "cli"):
                 continue
-            # Use "openai" provider — vllm-mlx is fully OpenAI-compatible.
+            # Use "openai" provider — mlx_lm.server is fully OpenAI-compatible.
             # "hosted_vllm" provider forces SSL in some LiteLLM versions.
             provider = "openai"
             entry: dict = {
@@ -230,6 +253,24 @@ def generate_litellm_config(config: ClusterConfig) -> str:
                             },
                         }
                     )
+    for ep in config.external_endpoints:
+        entry = {
+            "model_name": ep.model_name,
+            "litellm_params": {
+                "model": f"openai/{ep.model_name}",
+                "api_base": ep.api_base,
+            },
+        }
+        if ep.api_key_env:
+            entry["litellm_params"]["api_key"] = f"os.environ/{ep.api_key_env}"
+        elif ep.api_key:
+            entry["litellm_params"]["api_key"] = ep.api_key
+        if ep.max_input_tokens:
+            entry["litellm_params"]["max_input_tokens"] = ep.max_input_tokens
+        if ep.max_output_tokens:
+            entry["litellm_params"]["max_output_tokens"] = ep.max_output_tokens
+        model_list.append(entry)
+
     output: dict = {
         "model_list": model_list,
         "litellm_settings": {
