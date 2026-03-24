@@ -79,7 +79,10 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
             print(f"    [rsync] to {node_name}")
         return errors
     print(f"  Downloading {task.repo} on {gw_name}...")
-    hf_env = f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
+    env_parts = [f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"]
+    if os.environ.get("HF_TOKEN"):
+        env_parts.append(f"HF_TOKEN={os.environ['HF_TOKEN']}")
+    hf_env = " ".join(env_parts)
     dl_cmd = f"{hf_env} hf download {task.repo} --revision {task.revision}"
     result = ssh_run(gw.user, gw.ip, dl_cmd, timeout=3600, stream=True, shell=gw.shell)
     if result.returncode != 0:
@@ -116,7 +119,10 @@ def ensure_convert(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fa
             print(f"    [rsync] to {node_name}")
         return errors
     print(f"  Downloading source {task.repo} on {gw_name}...")
-    hf_env = f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
+    env_parts = [f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"]
+    if os.environ.get("HF_TOKEN"):
+        env_parts.append(f"HF_TOKEN={os.environ['HF_TOKEN']}")
+    hf_env = " ".join(env_parts)
     dl_result = ssh_run(gw.user, gw.ip, f"{hf_env} hf download {task.repo}", timeout=3600, stream=True, shell=gw.shell)
     if dl_result.returncode != 0:
         errors.append(f"Download failed for {task.repo}: {(dl_result.stderr or '').strip()}")
@@ -178,7 +184,10 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
             print(f"    [download] {task.weight_repo} on {gw_name}")
         else:
             print(f"  Downloading weights {task.weight_repo} on {gw_name}...")
-            hf_env = f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"
+            env_parts = [f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"]
+            if os.environ.get("HF_TOKEN"):
+                env_parts.append(f"HF_TOKEN={os.environ['HF_TOKEN']}")
+            hf_env = " ".join(env_parts)
             dl_cmd = f"{hf_env} hf download {task.weight_repo}"
             dl_result = ssh_run(gw.user, gw.ip, dl_cmd, timeout=3600, stream=True, shell=gw.shell)
             if dl_result.returncode != 0:
