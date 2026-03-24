@@ -106,22 +106,25 @@ def generate_plist(
 
 NEWSYSLOG_CONF = """\
 # logfilename                             [owner:group] mode count size(KB) when  flags
-{home}/logs/vllm-mlx-*.log            {user}:staff     644  7     102400   *     CNJ
-{home}/logs/vllm-mlx-*.err            {user}:staff     644  7     102400   *     CNJ
+{home}/logs/mlx-lm-*.log              {user}:staff     644  7     102400   *     CNJ
+{home}/logs/mlx-lm-*.err              {user}:staff     644  7     102400   *     CNJ
 """
 
 
-def upgrade_node_tools(node: Node) -> None:
-    """Best-effort upgrade of vllm-mlx on a node."""
-    result = ssh_run(node.user, node.ip, "uv tool upgrade vllm-mlx", timeout=120, shell=node.shell)
+def install_node_tools(node: Node) -> None:
+    """Install mlx-lm (with socks proxy support) and remove legacy vllm-mlx."""
+    ssh_run(node.user, node.ip, "uv tool uninstall vllm-mlx 2>/dev/null || true", timeout=30, shell=node.shell)
+    result = ssh_run(
+        node.user, node.ip,
+        "uv tool install --force mlx-lm --with 'httpx[socks]'",
+        timeout=120,
+        shell=node.shell,
+    )
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
-        if "nothing to upgrade" in stderr.lower() or "not installed" in stderr.lower():
-            print("  vllm-mlx already up to date")
-        else:
-            print(f"  Warning: vllm-mlx upgrade failed: {stderr or 'unknown error'} (continuing)")
+        print(f"  Warning: mlx-lm install failed: {stderr or 'unknown error'} (continuing)")
     else:
-        print("  Tools upgraded")
+        print("  mlx-lm installed")
 
 
 def deploy_node(
@@ -141,7 +144,7 @@ def deploy_node(
 
     if dry_run:
         for slot in slots:
-            print(f"    [upload] com.vllm-mlx-{slot.port}.plist ({slot.model}, port {slot.port})")
+            print(f"    [upload] com.mlx-lm-{slot.port}.plist ({slot.model}, port {slot.port})")
         print(f"    [restart] {len(slots)} launchd services")
         print(f"    [health] poll /v1/models on ports {', '.join(str(s.port) for s in slots)}")
         return errors
@@ -151,14 +154,33 @@ def deploy_node(
         return [f"{node_name}: failed to get UID — {(uid_result.stderr or '').strip()}"]
     uid = uid_result.stdout.strip()
 
-    upgrade_node_tools(node)
+    # Clean up legacy vllm-mlx plists
+    legacy_ls = ssh_run(
+        node.user, node.ip,
+        "ls ~/Library/LaunchAgents/com.vllm-mlx-*.plist 2>/dev/null || true",
+        shell=node.shell,
+    )
+    if legacy_ls.stdout.strip():
+        print("  Removing legacy vllm-mlx services...")
+        for line in legacy_ls.stdout.strip().splitlines():
+            filename = line.strip().split("/")[-1]
+            try:
+                port = int(filename.replace("com.vllm-mlx-", "").replace(".plist", ""))
+                stale_label = f"com.vllm-mlx-{port}"
+                cmd = f"launchctl bootout gui/{uid}/{stale_label} 2>/dev/null; rm ~/Library/LaunchAgents/{stale_label}.plist"
+                ssh_run(node.user, node.ip, cmd, shell=node.shell)
+            except ValueError:
+                continue
+        ssh_run(node.user, node.ip, "sudo rm -f /etc/newsyslog.d/vllm-mlx.conf", shell=node.shell)
+
+    install_node_tools(node)
 
     deployed_ports: set[int] = set()
 
     for slot in slots:
         model = config.models[slot.model]
         plist_xml = generate_plist(model, slot, node)
-        plist_name = f"com.vllm-mlx-{slot.port}.plist"
+        plist_name = f"com.mlx-lm-{slot.port}.plist"
         remote_plist = f"~/Library/LaunchAgents/{plist_name}"
 
         result = scp_content(node.user, node.ip, plist_xml, remote_plist, shell=node.shell)
@@ -166,7 +188,7 @@ def deploy_node(
             errors.append(f"{node_name}: failed to upload {plist_name} — {(result.stderr or '').strip()}")
             continue
 
-        label = f"com.vllm-mlx-{slot.port}"
+        label = f"com.mlx-lm-{slot.port}"
         domain = f"gui/{uid}"
         plist_path = f"~/Library/LaunchAgents/{plist_name}"
 
@@ -187,21 +209,21 @@ def deploy_node(
         deployed_ports.add(slot.port)
 
     newsyslog = NEWSYSLOG_CONF.format(user=node.user, home=node.home_dir)
-    scp_content(node.user, node.ip, newsyslog, "/tmp/vllm-mlx-newsyslog.conf", shell=node.shell)
-    ssh_run(node.user, node.ip, "sudo mv /tmp/vllm-mlx-newsyslog.conf /etc/newsyslog.d/vllm-mlx.conf", shell=node.shell)
+    scp_content(node.user, node.ip, newsyslog, "/tmp/mlx-lm-newsyslog.conf", shell=node.shell)
+    ssh_run(node.user, node.ip, "sudo mv /tmp/mlx-lm-newsyslog.conf /etc/newsyslog.d/mlx-lm.conf", shell=node.shell)
 
     # Note: ls 2>/dev/null || true is intentional — no plists present is not an error.
     ls_result = ssh_run(
-        node.user, node.ip, "ls ~/Library/LaunchAgents/com.vllm-mlx-*.plist 2>/dev/null || true", shell=node.shell
+        node.user, node.ip, "ls ~/Library/LaunchAgents/com.mlx-lm-*.plist 2>/dev/null || true", shell=node.shell
     )
     if ls_result.stdout.strip():
         for line in ls_result.stdout.strip().splitlines():
             filename = line.strip().split("/")[-1]
             try:
-                port = int(filename.replace("com.vllm-mlx-", "").replace(".plist", ""))
+                port = int(filename.replace("com.mlx-lm-", "").replace(".plist", ""))
                 if port not in deployed_ports:
                     print(f"  Removing stale plist for port {port}")
-                    stale = f"com.vllm-mlx-{port}"
+                    stale = f"com.mlx-lm-{port}"
                     # Note: 2>/dev/null on bootout is intentional — stale service may not be loaded.
                     cmd = f"launchctl bootout gui/{uid}/{stale} 2>/dev/null; rm ~/Library/LaunchAgents/{stale}.plist"
                     ssh_run(node.user, node.ip, cmd, shell=node.shell)
