@@ -26,7 +26,7 @@ def build_probe_script(role: str) -> str:
         'command -v uv >/dev/null 2>&1 && echo "UV_OK=1" || echo "UV_OK=0"',
     ]
     if role == "node":
-        lines.append('uv tool list 2>/dev/null | grep -q vllm && echo "VLLM_OK=1" || echo "VLLM_OK=0"')
+        lines.append('uv tool list 2>/dev/null | grep -q mlx-lm && echo "MLX_LM_OK=1" || echo "MLX_LM_OK=0"')
     if role == "gateway":
         lines.append('docker info >/dev/null 2>&1 && echo "DOCKER_OK=1" || echo "DOCKER_OK=0"')
         hf_check = 'hf_home="${HF_HOME:-$HOME/.cache/huggingface}"; test -w "$hf_home"'
@@ -120,8 +120,8 @@ def _probe_node(name: str, node: Node) -> list[str]:
         errors.append(f"{name}: uv not found — run: setup-node.sh {node.role}")
 
     if node.role == "node":
-        if data.get("VLLM_OK") != "1":
-            errors.append(f"{name}: vllm-mlx not installed — run: setup-node.sh node")
+        if data.get("MLX_LM_OK") != "1":
+            errors.append(f"{name}: mlx-lm not installed — run: uv tool install --force mlx-lm --with 'httpx[socks]'")
         if node.platform == "Darwin" and data.get("BREW_OK") != "1":
             errors.append(f"{name}: Homebrew not found on macOS node")
 

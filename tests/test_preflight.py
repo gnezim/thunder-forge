@@ -22,7 +22,7 @@ class TestParseProbeOutput:
             "BREW_PREFIX=/opt/homebrew\n"
             "BREW_OK=1\n"
             "UV_OK=1\n"
-            "VLLM_OK=1\n"
+            "MLX_LM_OK=1\n"
             "DISK_KB=52428800\n"
             "@@PROBE_END@@\n"
         )
@@ -51,9 +51,9 @@ class TestBuildProbeScript:
         script = build_probe_script(role="gateway")
         assert "docker" in script
 
-    def test_node_includes_vllm_check(self) -> None:
+    def test_node_includes_mlx_lm_check(self) -> None:
         script = build_probe_script(role="node")
-        assert "vllm" in script
+        assert "mlx-lm" in script
 
 
 class TestRunPreflight:
@@ -69,7 +69,7 @@ class TestRunPreflight:
             "BREW_PREFIX=/opt/homebrew\n"
             "BREW_OK=1\n"
             "UV_OK=1\n"
-            "VLLM_OK=1\n"
+            "MLX_LM_OK=1\n"
             "DOCKER_OK=1\n"
             "HF_HOME_OK=1\n"
             "DISK_KB=52428800\n"
@@ -109,7 +109,7 @@ class TestRunPreflight:
             "BREW_PREFIX=/opt/homebrew\n"
             "BREW_OK=1\n"
             "UV_OK=1\n"
-            "VLLM_OK=1\n"
+            "MLX_LM_OK=1\n"
             "DISK_KB=52428800\n"
             "@@PROBE_END@@\n"
         )
@@ -144,7 +144,7 @@ class TestRunPreflight:
             "BREW_PREFIX=/opt/homebrew\n"
             "BREW_OK=1\n"
             "UV_OK=0\n"
-            "VLLM_OK=0\n"
+            "MLX_LM_OK=0\n"
             "DISK_KB=52428800\n"
             "@@PROBE_END@@\n"
         )
