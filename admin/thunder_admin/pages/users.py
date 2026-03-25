@@ -31,14 +31,10 @@ def render(user: dict):
                 if btn1.button("Reset PW", key=f"reset_{u['id']}"):
                     new_pw = generate_password()
                     db.update_user_password(u["id"], hash_password(new_pw))
-                    st.info(
-                        f"New password for {u['username']}: `{new_pw}`"
-                    )
+                    st.info(f"New password for {u['username']}: `{new_pw}`")
                 # Can't delete yourself
                 if u["id"] != user["id"]:
-                    if btn2.button(
-                        "Delete", key=f"del_{u['id']}", type="secondary"
-                    ):
+                    if btn2.button("Delete", key=f"del_{u['id']}", type="secondary"):
                         db.delete_user(u["id"])
                         st.success(f"Deleted {u['username']}")
                         st.rerun()
@@ -56,10 +52,6 @@ def render(user: dict):
                 st.error(f"User '{username}' already exists")
             else:
                 password = generate_password()
-                db.create_user(
-                    username, hash_password(password), is_admin=is_admin
-                )
-                st.success(
-                    f"Created user '{username}'. Password: `{password}`"
-                )
+                db.create_user(username, hash_password(password), is_admin=is_admin)
+                st.success(f"Created user '{username}'. Password: `{password}`")
                 st.rerun()

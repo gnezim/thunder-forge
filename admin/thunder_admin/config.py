@@ -118,9 +118,7 @@ def validate_config(config_json: dict) -> list[str]:
                 errors.append(f"Assignment on {node_name} references non-existent model: {model_name}")
             port = slot.get("port", 0)
             if port in ports_seen:
-                errors.append(
-                    f"Duplicate port {port} on node {node_name} (models: {ports_seen[port]}, {model_name})"
-                )
+                errors.append(f"Duplicate port {port} on node {node_name} (models: {ports_seen[port]}, {model_name})")
             else:
                 ports_seen[port] = model_name
 
@@ -130,9 +128,7 @@ def validate_config(config_json: dict) -> list[str]:
             from thunder_forge.cluster.config import OS_OVERHEAD_GB
 
             fits = any(
-                n.get("ram_gb", 0) >= disk_gb + OS_OVERHEAD_GB
-                for n in nodes.values()
-                if n.get("role") == "node"
+                n.get("ram_gb", 0) >= disk_gb + OS_OVERHEAD_GB for n in nodes.values() if n.get("role") == "node"
             )
             if not fits:
                 errors.append(

@@ -42,7 +42,6 @@ def cmd_create_user(username: str) -> None:
 
 def cmd_import_config(path: str) -> None:
     """Import a node-assignments.yaml file as a config version."""
-    from thunder_admin import db
     from thunder_admin.config import validate_config
 
     with open(path) as f:
@@ -62,8 +61,7 @@ def cmd_import_config(path: str) -> None:
 
     with get_cursor() as cur:
         cur.execute(
-            "INSERT INTO config_versions (config, author_id, comment) "
-            "VALUES (%s, NULL, %s) RETURNING id",
+            "INSERT INTO config_versions (config, author_id, comment) VALUES (%s, NULL, %s) RETURNING id",
             (Json(config_json), f"Imported from {path}"),
         )
         row = cur.fetchone()
@@ -88,9 +86,7 @@ def cmd_export_config(version: int | None = None) -> None:
     if version:
         row = db.get_config_version(version)
         if not row:
-            print(
-                f"Error: Config version {version} not found", file=sys.stderr
-            )
+            print(f"Error: Config version {version} not found", file=sys.stderr)
             sys.exit(1)
     else:
         row = db.get_current_config()
@@ -105,10 +101,7 @@ def main() -> None:
     """CLI dispatch."""
     if len(sys.argv) < 2:
         print("Usage: python -m thunder_admin <command> [args]")
-        print(
-            "Commands: reset-password, create-user, import-config, "
-            "list-users, export-config"
-        )
+        print("Commands: reset-password, create-user, import-config, list-users, export-config")
         sys.exit(1)
 
     cmd = sys.argv[1]

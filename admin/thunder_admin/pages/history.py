@@ -23,8 +23,10 @@ def render(user: dict):
         deploy_badge = ""
         if v.get("deploy_status"):
             colors = {
-                "success": "green", "failed": "red",
-                "running": "orange", "cancelled": "grey",
+                "success": "green",
+                "failed": "red",
+                "running": "orange",
+                "cancelled": "grey",
             }
             color = colors.get(v["deploy_status"], "grey")
             deploy_badge = f" :{color}[{v['deploy_status']}]"
@@ -71,12 +73,7 @@ def render(user: dict):
                 )
                 if new_id:
                     st.session_state["loaded_config_id"] = new_id
-                    st.success(
-                        f"Restored version {v['id']} as new version {new_id}"
-                    )
+                    st.success(f"Restored version {v['id']} as new version {new_id}")
                     st.rerun()
                 else:
-                    st.error(
-                        "Config was modified while restoring. "
-                        "Reload and retry."
-                    )
+                    st.error("Config was modified while restoring. Reload and retry.")

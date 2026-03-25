@@ -18,8 +18,10 @@ def render(user: dict):
         st.session_state.setdefault("loaded_config_id", current["id"])
     else:
         config = {
-            "models": {}, "nodes": {},
-            "assignments": {}, "external_endpoints": [],
+            "models": {},
+            "nodes": {},
+            "assignments": {},
+            "external_endpoints": [],
         }
         st.session_state.setdefault("loaded_config_id", None)
 
@@ -28,33 +30,23 @@ def render(user: dict):
     if endpoints:
         for i, ep in enumerate(endpoints):
             with st.expander(
-                f"**{ep.get('model_name', '?')}** — "
-                f"{ep.get('api_base', 'N/A')}",
+                f"**{ep.get('model_name', '?')}** — {ep.get('api_base', 'N/A')}",
                 expanded=False,
             ):
                 st.write(f"**API Base:** {ep.get('api_base', '')}")
-                st.write(
-                    f"**API Key Env:** "
-                    f"{ep.get('api_key_env', '') or '(none)'}"
-                )
+                st.write(f"**API Key Env:** {ep.get('api_key_env', '') or '(none)'}")
                 if ep.get("max_input_tokens"):
-                    st.write(
-                        f"**Max Input Tokens:** "
-                        f"{ep['max_input_tokens']:,}"
-                    )
+                    st.write(f"**Max Input Tokens:** {ep['max_input_tokens']:,}")
                 if ep.get("max_output_tokens"):
-                    st.write(
-                        f"**Max Output Tokens:** "
-                        f"{ep['max_output_tokens']:,}"
-                    )
+                    st.write(f"**Max Output Tokens:** {ep['max_output_tokens']:,}")
 
-                if st.button(
-                    "Delete", key=f"delete_ep_{i}", type="secondary"
-                ):
+                if st.button("Delete", key=f"delete_ep_{i}", type="secondary"):
                     endpoints.pop(i)
                     config["external_endpoints"] = endpoints
-                    if save_config_or_error(st,
-                        config, user,
+                    if save_config_or_error(
+                        st,
+                        config,
+                        user,
                         f"Deleted endpoint '{ep.get('model_name')}'",
                     ):
                         st.success("Deleted")
@@ -66,16 +58,10 @@ def render(user: dict):
     st.subheader("Add External Endpoint")
     with st.form("add_endpoint"):
         model_name = st.text_input("Model name")
-        api_base = st.text_input(
-            "API base URL (e.g. http://example.com:4000/v1)"
-        )
+        api_base = st.text_input("API base URL (e.g. http://example.com:4000/v1)")
         api_key_env = st.text_input("API key env var name (optional)")
-        max_input = st.number_input(
-            "Max input tokens (0 = default)", min_value=0, value=0, step=1024
-        )
-        max_output = st.number_input(
-            "Max output tokens (0 = default)", min_value=0, value=0, step=1024
-        )
+        max_input = st.number_input("Max input tokens (0 = default)", min_value=0, value=0, step=1024)
+        max_output = st.number_input("Max output tokens (0 = default)", min_value=0, value=0, step=1024)
 
         if st.form_submit_button("Add Endpoint"):
             if not model_name or not api_base:
@@ -93,8 +79,6 @@ def render(user: dict):
                     new_ep["max_output_tokens"] = max_output
                 endpoints.append(new_ep)
                 config["external_endpoints"] = endpoints
-                if save_config_or_error(st,
-                    config, user, f"Added endpoint '{model_name}'"
-                ):
+                if save_config_or_error(st, config, user, f"Added endpoint '{model_name}'"):
                     st.success(f"Added '{model_name}'")
                     st.rerun()

@@ -10,7 +10,6 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
-
 _local = threading.local()
 
 
@@ -80,17 +79,14 @@ def list_config_versions(limit: int = 50) -> list[dict]:
         return cur.fetchall()
 
 
-def save_config(
-    config_json: dict, author_id: int, comment: str, loaded_version_id: int | None
-) -> int | None:
+def save_config(config_json: dict, author_id: int, comment: str, loaded_version_id: int | None) -> int | None:
     """Save a new config version with optimistic locking.
     Returns the new version ID, or None if the loaded version is stale.
     """
     with get_cursor() as cur:
         if loaded_version_id is None:
             cur.execute(
-                "INSERT INTO config_versions (config, author_id, comment) "
-                "VALUES (%s, %s, %s) RETURNING id",
+                "INSERT INTO config_versions (config, author_id, comment) VALUES (%s, %s, %s) RETURNING id",
                 (psycopg.types.json.Json(config_json), author_id, comment),
             )
         else:
@@ -191,8 +187,7 @@ def list_users() -> list[dict]:
 def create_user(username: str, password_hash: str, is_admin: bool = False) -> int:
     with get_cursor() as cur:
         cur.execute(
-            "INSERT INTO users (username, password_hash, is_admin) "
-            "VALUES (%s, %s, %s) RETURNING id",
+            "INSERT INTO users (username, password_hash, is_admin) VALUES (%s, %s, %s) RETURNING id",
             (username, password_hash, is_admin),
         )
         return cur.fetchone()["id"]

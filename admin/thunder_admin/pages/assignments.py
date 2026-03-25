@@ -19,17 +19,17 @@ def render(user: dict):
         st.session_state.setdefault("loaded_config_id", current["id"])
     else:
         config = {
-            "models": {}, "nodes": {},
-            "assignments": {}, "external_endpoints": [],
+            "models": {},
+            "nodes": {},
+            "assignments": {},
+            "external_endpoints": [],
         }
         st.session_state.setdefault("loaded_config_id", None)
 
     models = config.get("models", {})
     nodes = config.get("nodes", {})
     assignments = config.get("assignments", {})
-    compute_nodes = {
-        k: v for k, v in nodes.items() if v.get("role") == "node"
-    }
+    compute_nodes = {k: v for k, v in nodes.items() if v.get("role") == "node"}
 
     # Memory budget per node
     st.subheader("Memory Budget")
@@ -44,11 +44,7 @@ def render(user: dict):
                 kv = model.get("kv_per_32k_gb", 0)
                 total += weight + kv
                 parts.append(f"{slot['model']}({weight}+{kv}kv)")
-        budget = (
-            " + ".join(parts)
-            + f" + {OS_OVERHEAD_GB} OS = {total:.1f} / "
-            f"{node.get('ram_gb', 0)} GB"
-        )
+        budget = " + ".join(parts) + f" + {OS_OVERHEAD_GB} OS = {total:.1f} / {node.get('ram_gb', 0)} GB"
         if total > node.get("ram_gb", 0):
             st.error(f"**{node_name}:** {budget} — EXCEEDS RAM")
         else:
@@ -70,8 +66,10 @@ def render(user: dict):
                     if not assignments[node_name]:
                         del assignments[node_name]
                     config["assignments"] = assignments
-                    if save_config_or_error(st,
-                        config, user,
+                    if save_config_or_error(
+                        st,
+                        config,
+                        user,
                         f"Removed {slot.get('model')} from {node_name}",
                     ):
                         st.rerun()
@@ -81,17 +79,11 @@ def render(user: dict):
     # Add assignment form
     st.subheader("Add Assignment")
     with st.form("add_assignment"):
-        node_options = (
-            list(compute_nodes.keys()) if compute_nodes else ["(no nodes)"]
-        )
-        model_options = (
-            list(models.keys()) if models else ["(no models)"]
-        )
+        node_options = list(compute_nodes.keys()) if compute_nodes else ["(no nodes)"]
+        model_options = list(models.keys()) if models else ["(no models)"]
         node_name = st.selectbox("Node", node_options)
         model_name = st.selectbox("Model", model_options)
-        port = st.number_input(
-            "Port", min_value=1, max_value=65535, value=8000, step=1
-        )
+        port = st.number_input("Port", min_value=1, max_value=65535, value=8000, step=1)
         embedding = st.checkbox("Embedding slot")
 
         if st.form_submit_button("Add Assignment"):
@@ -102,17 +94,19 @@ def render(user: dict):
             else:
                 if node_name not in assignments:
                     assignments[node_name] = []
-                assignments[node_name].append({
-                    "model": model_name,
-                    "port": port,
-                    "embedding": embedding,
-                })
+                assignments[node_name].append(
+                    {
+                        "model": model_name,
+                        "port": port,
+                        "embedding": embedding,
+                    }
+                )
                 config["assignments"] = assignments
-                if save_config_or_error(st,
-                    config, user,
+                if save_config_or_error(
+                    st,
+                    config,
+                    user,
                     f"Assigned {model_name} to {node_name}:{port}",
                 ):
-                    st.success(
-                        f"Assigned {model_name} to {node_name}:{port}"
-                    )
+                    st.success(f"Assigned {model_name} to {node_name}:{port}")
                     st.rerun()

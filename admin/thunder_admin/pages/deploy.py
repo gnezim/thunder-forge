@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import difflib
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import streamlit as st
 
@@ -66,9 +66,7 @@ def render(user: dict):
         output_placeholder = st.empty()
         deploy = db.get_deploy(running["id"])
         if deploy:
-            output_placeholder.code(
-                deploy.get("output", "") or "Waiting for output..."
-            )
+            output_placeholder.code(deploy.get("output", "") or "Waiting for output...")
             if deploy["status"] == "running":
                 # Poll for updates
                 time.sleep(2)
@@ -89,30 +87,25 @@ def render(user: dict):
                         db.update_deploy(
                             running["id"],
                             status="cancelled",
-                            finished_at=datetime.now(timezone.utc),
+                            finished_at=datetime.now(UTC),
                         )
                         st.warning("Deploy cancelled")
                         st.rerun()
                     else:
                         st.error("Failed to cancel deploy")
             elif lock_status == "stale" and pid:
-                st.warning(
-                    f"Deploy process (PID {pid}) appears stuck. "
-                    f"Force cancel?"
-                )
+                st.warning(f"Deploy process (PID {pid}) appears stuck. Force cancel?")
                 if st.button("Force Cancel"):
                     if kill_gateway_deploy(str(pid)):
                         db.update_deploy(
                             running["id"],
                             status="cancelled",
-                            finished_at=datetime.now(timezone.utc),
+                            finished_at=datetime.now(UTC),
                         )
                         st.rerun()
     else:
         if st.button("Deploy", type="primary"):
-            deploy_id, error = start_deploy(
-                current["id"], user["id"], current_yaml
-            )
+            deploy_id, error = start_deploy(current["id"], user["id"], current_yaml)
             if deploy_id:
                 st.success(f"Deploy started (ID: {deploy_id})")
                 st.rerun()
@@ -125,8 +118,10 @@ def render(user: dict):
     if deploys:
         for d in deploys:
             status_icons = {
-                "success": "green", "failed": "red",
-                "running": "orange", "cancelled": "grey",
+                "success": "green",
+                "failed": "red",
+                "running": "orange",
+                "cancelled": "grey",
             }
             color = status_icons.get(d["status"], "grey")
             duration = ""

@@ -18,8 +18,10 @@ def render(user: dict):
         st.session_state.setdefault("loaded_config_id", current["id"])
     else:
         config = {
-            "models": {}, "nodes": {},
-            "assignments": {}, "external_endpoints": [],
+            "models": {},
+            "nodes": {},
+            "assignments": {},
+            "external_endpoints": [],
         }
         st.session_state.setdefault("loaded_config_id", None)
 
@@ -29,8 +31,7 @@ def render(user: dict):
     if nodes:
         for name, node in nodes.items():
             with st.expander(
-                f"**{name}** — {node.get('ip', 'N/A')} "
-                f"({node.get('role', 'node')})",
+                f"**{name}** — {node.get('ip', 'N/A')} ({node.get('role', 'node')})",
                 expanded=False,
             ):
                 col1, col2, col3, col4 = st.columns(4)
@@ -50,14 +51,21 @@ def render(user: dict):
                 if st.session_state.get(f"editing_node_{name}"):
                     with st.form(f"edit_node_{name}"):
                         new_ip = st.text_input("IP", value=node.get("ip", ""), key=f"en_ip_{name}")
-                        new_ram = st.number_input("RAM (GB)", value=node.get("ram_gb", 128), step=1, key=f"en_ram_{name}")
+                        new_ram = st.number_input(
+                            "RAM (GB)",
+                            value=node.get("ram_gb", 128),
+                            step=1,
+                            key=f"en_ram_{name}",
+                        )
                         new_role = st.selectbox(
-                            "Role", ["node", "gateway"],
+                            "Role",
+                            ["node", "gateway"],
                             index=["node", "gateway"].index(node.get("role", "node")),
                             key=f"en_role_{name}",
                         )
                         new_user = st.text_input(
-                            "SSH user", value=node.get("user", ""),
+                            "SSH user",
+                            value=node.get("user", ""),
                             key=f"en_user_{name}",
                         )
                         sc, cc = st.columns(2)
@@ -74,33 +82,28 @@ def render(user: dict):
                             del st.session_state[f"editing_node_{name}"]
                             st.rerun()
 
-                if del_col.button(
-                    "Delete", key=f"delete_node_{name}", type="secondary"
-                ):
+                if del_col.button("Delete", key=f"delete_node_{name}", type="secondary"):
                     if name in config.get("assignments", {}):
                         slots = config["assignments"][name]
                         model_names = [s.get("model", "?") for s in slots]
-                        st.warning(
-                            f"Node has assignments: {', '.join(model_names)}. "
-                            f"Remove assignments and delete?"
-                        )
+                        st.warning(f"Node has assignments: {', '.join(model_names)}. Remove assignments and delete?")
                         if st.button(
                             "Confirm delete",
                             key=f"confirm_delete_node_{name}",
                         ):
                             del config["assignments"][name]
                             del config["nodes"][name]
-                            if save_config_or_error(st,
-                                config, user,
+                            if save_config_or_error(
+                                st,
+                                config,
+                                user,
                                 f"Deleted node '{name}' and its assignments",
                             ):
                                 st.success(f"Deleted '{name}'")
                                 st.rerun()
                     else:
                         del config["nodes"][name]
-                        if save_config_or_error(st,
-                            config, user, f"Deleted node '{name}'"
-                        ):
+                        if save_config_or_error(st, config, user, f"Deleted node '{name}'"):
                             st.success(f"Deleted '{name}'")
                             st.rerun()
     else:
@@ -113,9 +116,7 @@ def render(user: dict):
         ip = st.text_input("IP address")
         ram_gb = st.number_input("RAM (GB)", min_value=1, value=128, step=1)
         role = st.selectbox("Role", ["node", "gateway"])
-        node_user = st.text_input(
-            "SSH user (optional — falls back to TF_SSH_USER on gateway)"
-        )
+        node_user = st.text_input("SSH user (optional — falls back to TF_SSH_USER on gateway)")
 
         if st.form_submit_button("Add Node"):
             if not name:

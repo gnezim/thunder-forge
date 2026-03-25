@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 
@@ -19,7 +19,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 def is_session_expired(login_time: datetime, timeout_hours: int | None = None) -> bool:
     if timeout_hours is None:
         timeout_hours = int(os.environ.get("SESSION_TIMEOUT_HOURS", "24"))
-    return datetime.now(timezone.utc) - login_time > timedelta(hours=timeout_hours)
+    return datetime.now(UTC) - login_time > timedelta(hours=timeout_hours)
 
 
 def require_auth(st) -> dict | None:
@@ -42,7 +42,7 @@ def login(st, username: str, password: str) -> bool:
             "username": user["username"],
             "is_admin": user["is_admin"],
         }
-        st.session_state["login_time"] = datetime.now(timezone.utc)
+        st.session_state["login_time"] = datetime.now(UTC)
         return True
     return False
 

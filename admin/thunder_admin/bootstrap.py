@@ -104,7 +104,7 @@ def bootstrap() -> None:
 
     password = create_initial_admin(database_url)
     if password:
-        print(f"\nFirst run detected. Admin account created:")
-        print(f"  Username: admin")
+        print("\nFirst run detected. Admin account created:")
+        print("  Username: admin")
         print(f"  Password: {password}")
-        print(f"Save this password!\n")
+        print("Save this password!\n")
