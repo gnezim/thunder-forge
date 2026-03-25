@@ -11,6 +11,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-litellm-local}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${PG_PORT:-5434}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U litellm"]
       interval: 10s
@@ -84,13 +86,15 @@ services:
       dockerfile: admin/Dockerfile
     container_name: admin-ui
     restart: unless-stopped
-    ports:
-      - "${ADMIN_PORT:-8501}:8501"
+    network_mode: "host"
     environment:
-      DATABASE_URL: postgresql://thunder_admin:${ADMIN_DB_PASSWORD:-admin-local}@postgres:5432/thunder_admin
+      DATABASE_URL: postgresql://thunder_admin:${ADMIN_DB_PASSWORD:-admin-local}@localhost:${PG_PORT:-5434}/thunder_admin
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: ${PG_PORT:-5434}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-litellm-local}
       ADMIN_DB_PASSWORD: ${ADMIN_DB_PASSWORD:-admin-local}
-      GATEWAY_SSH_HOST: host.docker.internal
+      GATEWAY_SSH_HOST: ${GATEWAY_SSH_HOST:-localhost}
+      GATEWAY_SSH_PORT: ${GATEWAY_SSH_PORT:-22}
       GATEWAY_SSH_USER: ${GATEWAY_SSH_USER:?GATEWAY_SSH_USER must be set}
       GATEWAY_SSH_KEY: /ssh/id_ed25519
       THUNDER_FORGE_DIR: ${THUNDER_FORGE_DIR:?THUNDER_FORGE_DIR must be set}
@@ -101,8 +105,6 @@ services:
       LITELLM_URL: ${LITELLM_URL:-http://localhost:4000/ui}
     volumes:
       - ${GATEWAY_SSH_KEY:-~/.ssh/id_ed25519}:/ssh/id_ed25519:ro
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       postgres: { condition: service_healthy }
     healthcheck:
@@ -110,7 +112,6 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
-    networks: [infra]
 
 networks:
   infra:

@@ -18,6 +18,7 @@ def _get_ssh_client() -> paramiko.SSHClient:
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     host = os.environ["GATEWAY_SSH_HOST"]
+    port = int(os.environ.get("GATEWAY_SSH_PORT", "22"))
     user = os.environ["GATEWAY_SSH_USER"]
     key_path = os.environ.get("GATEWAY_SSH_KEY", "/ssh/id_ed25519")
 
@@ -28,6 +29,7 @@ def _get_ssh_client() -> paramiko.SSHClient:
     pkey = paramiko.PKey.from_path(key_path)
     client.connect(
         hostname=host,
+        port=port,
         username=user,
         pkey=pkey,
         timeout=10,

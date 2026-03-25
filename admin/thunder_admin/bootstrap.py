@@ -48,7 +48,9 @@ def ensure_database() -> None:
     """Create the thunder_admin database and user if they don't exist."""
     pg_password = os.environ.get("POSTGRES_PASSWORD", "litellm-local")
     admin_password = os.environ.get("ADMIN_DB_PASSWORD", "admin-local")
-    pg_url = f"postgresql://litellm:{pg_password}@postgres:5432/postgres"
+    pg_host = os.environ.get("POSTGRES_HOST", "postgres")
+    pg_port = os.environ.get("POSTGRES_PORT", "5432")
+    pg_url = f"postgresql://litellm:{pg_password}@{pg_host}:{pg_port}/postgres"
 
     with psycopg.connect(pg_url, autocommit=True) as conn:
         row = conn.execute("SELECT 1 FROM pg_roles WHERE rolname = 'thunder_admin'").fetchone()

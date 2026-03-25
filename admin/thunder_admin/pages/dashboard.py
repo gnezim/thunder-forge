@@ -49,7 +49,7 @@ def render(user: dict):
         if st.button("Check Health"):
             tf_dir = os.environ.get("THUNDER_FORGE_DIR", "")
             exit_code, output = ssh_exec(
-                f"cd {tf_dir} && uv run thunder-forge health --skip-preflight",
+                f"cd {tf_dir} && ~/.local/bin/uv run thunder-forge health --skip-preflight",
                 timeout=60,
             )
             if exit_code == 0:
