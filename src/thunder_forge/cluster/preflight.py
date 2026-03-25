@@ -29,11 +29,11 @@ def build_probe_script(role: str) -> str:
         lines.append('uv tool list 2>/dev/null | grep -q mlx-lm && echo "MLX_LM_OK=1" || echo "MLX_LM_OK=0"')
     if role == "gateway":
         lines.append('docker info >/dev/null 2>&1 && echo "DOCKER_OK=1" || echo "DOCKER_OK=0"')
-        hf_check = 'hf_home="${HF_HOME:-$HOME/.cache/huggingface}"; test -w "$hf_home"'
+        hf_check = 'hf_home="${HF_HOME:-$HOME/.cache/huggingface}"; hf_home="${hf_home/#~/$HOME}"; test -w "$hf_home"'
         lines.append(f'{hf_check} && echo "HF_HOME_OK=1" || echo "HF_HOME_OK=0"')
     # Check disk space on the path that matters: HF_HOME for gateway (models), $HOME for nodes (services)
     if role == "gateway":
-        lines.append('disk_path="${HF_HOME:-$HOME/.cache/huggingface}"')
+        lines.append('disk_path="${HF_HOME:-$HOME/.cache/huggingface}"; disk_path="${disk_path/#~/$HOME}"')
     else:
         lines.append('disk_path="$HOME"')
     lines.append('echo "DISK_KB=$(df -k "$disk_path" 2>/dev/null | tail -1 | awk \'{print $4}\')"')
