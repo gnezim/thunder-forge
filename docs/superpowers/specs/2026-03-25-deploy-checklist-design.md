@@ -31,15 +31,16 @@ Checks run in parallel via `ThreadPoolExecutor`, one thread per slot.
 
 | Step | Type | What it checks |
 |------|------|----------------|
-| **config** | static (no SSH) | RAM fits on node, port is unique per node, model and node exist in config |
-| **ssh** | SSH via paramiko | `echo ok` on the target node — confirms connectivity |
-| **model** | SSH | `ls ~/.cache/huggingface/hub/models--{org}--{name}/` exists on node |
-| **service** | SSH | `launchctl list com.mlx-lm-{port}` on macOS nodes; `systemctl is-active thunder-forge-{port}` on Linux nodes |
+| **config** | static (no SSH) | RAM fits on node, port is unique per node, model and node exist in config — delegates to existing `validate_config()` and scopes errors to the slot |
+| **ssh** | SSH to compute node | `echo ok` on `node.ip` using `node.user` — confirms connectivity |
+| **model** | SSH to compute node | For HuggingFace sources: `ls ~/.cache/huggingface/hub/models--{org}--{name}/` where path is derived by replacing `/` with `--` in `source.repo`. For `local`/`pip`/`convert` sources: returns `("warn", "non-HF source; skipping model check")` |
+| **service** | SSH to compute node | macOS: `launchctl list com.mlx-lm-{port}` and grep for `"PID"` key in output — PID present means running, absent means stopped/crashed. Linux: `systemctl is-active thunder-forge-{port}` |
 | **port** | HTTP | `GET http://{node_ip}:{port}/v1/models` with 3s timeout |
 
-Steps after a failed dependency return `–` (grey) to avoid misleading results:
+Steps after a failed dependency return `("skip", "")` (grey `–`) to avoid misleading results:
 - `model`, `service`, `port` are skipped if `ssh` fails
 - `port` is also skipped if `service` is not running
+- If config check fails, remaining steps still run (config errors are non-blocking warnings)
 
 ## Data Model
 
@@ -50,9 +51,9 @@ CheckResult = tuple[Literal["ok", "warn", "error", "skip"], str]  # (status, det
 # Per-slot results dict
 SlotChecks = dict[str, CheckResult]  # keys: "config", "ssh", "model", "service", "port"
 
-# Session state key
-# st.session_state["deploy_checks"]: dict[(node_name, model_name, port), SlotChecks]
-# st.session_state["deploy_checks_config_id"]: int — invalidate on config version change
+# Session state key: (node_name, port) — port is unique per node (enforced by validate_config)
+# st.session_state["deploy_checks"]: dict[tuple[str, int], SlotChecks]
+# st.session_state["deploy_checks_config_id"]: int — invalidate when db.get_current_config()["id"] changes
 ```
 
 ## Code Structure
@@ -61,30 +62,29 @@ SlotChecks = dict[str, CheckResult]  # keys: "config", "ssh", "model", "service"
 
 Five check functions, all returning `CheckResult`:
 
-- `check_config(node_name, node, slot, config) -> SlotChecks` — static only, no I/O
-- `check_ssh(node_name, node) -> CheckResult` — paramiko ping
-- `check_model(node, slot, config) -> CheckResult` — SSH ls on HF cache path
-- `check_service(node, slot) -> CheckResult` — SSH launchctl/systemctl
-- `check_port(node, slot) -> CheckResult` — HTTP GET /v1/models
+- `check_config(node_name, slot, config) -> CheckResult` — static only, no I/O; delegates to `validate_config()` and filters errors relevant to this slot
+- `check_ssh(node) -> CheckResult` — paramiko `echo ok` to `node.ip` as `node.user`
+- `check_model(node, slot, config) -> CheckResult` — SSH ls on HF cache path; skip for non-HF sources
+- `check_service(node, slot) -> CheckResult` — SSH launchctl (grep PID) on macOS, systemctl on Linux
+- `check_port(node, slot) -> CheckResult` — HTTP GET /v1/models timeout 3s
+
+Each SSH check creates its own paramiko connection to `node.ip`/`node.user` — independent of the gateway `ssh_exec` helper (which is gateway-only).
 
 Entry point:
 
 ```python
-def run_all_checks(config: dict) -> dict[tuple, SlotChecks]:
-    """Run all checks for all assignment slots in parallel."""
+def run_all_checks(config: dict) -> dict[tuple[str, int], SlotChecks]:
+    """Run all checks for all assignment slots in parallel. Returns (node_name, port) → SlotChecks."""
     ...
 ```
 
 ### Modified: `admin/thunder_admin/pages/deploy.py`
 
-- Add "Check Status" `st.button` above the Deploy button
-- On click: call `run_all_checks`, store in `st.session_state["deploy_checks"]`
-- After checks: render one row per slot using `st.columns([2, 1, 1, 1, 1, 1])`
+- Add "Check Status" `st.button` above the Deploy button; hide if no assignments
+- On click: call `run_all_checks(config)`, store results + config id in session state
+- After checks: render one row per slot using `st.columns([3, 1, 1, 1, 1, 1])`
+- Show `st.info("No assignments to check")` when assignments is empty
 - Invalidate cache when `current["id"] != st.session_state.get("deploy_checks_config_id")`
-
-## SSH Reuse
-
-`check_ssh`, `check_model`, and `check_service` reuse `ssh_exec` from `admin/thunder_admin/deploy.py`. Each check opens its own short-lived paramiko connection (acceptable for a manual "Check" action).
 
 ## Error Handling
 
