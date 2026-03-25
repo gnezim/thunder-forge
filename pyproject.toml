@@ -21,6 +21,8 @@ packages = ["src/thunder_forge"]
 
 [dependency-groups]
 dev = [
+    "bcrypt>=4.2",
+    "psycopg[binary]>=3.2",
     "pytest>=8.0",
     "ruff>=0.11",
 ]
