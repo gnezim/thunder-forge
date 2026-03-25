@@ -128,17 +128,12 @@ def _parse_model(raw: dict) -> Model:
     )
 
 
-def load_cluster_config(path: Path) -> ClusterConfig:
-    """Load and parse node-assignments.yaml into a ClusterConfig."""
-    # Load .env from repo root (env vars take precedence)
-    repo_root = find_repo_root()
-    env_file = repo_root / ".env"
-    if env_file.exists():
-        load_dotenv(env_file, override=False)
+def parse_cluster_config(raw: dict) -> ClusterConfig:
+    """Parse a raw YAML-like dict into a ClusterConfig.
 
-    with path.open() as f:
-        raw = yaml.safe_load(f)
-
+    No file I/O, no .env loading, no user resolution from env vars.
+    The user field is stored as-is from the raw dict (empty string if unset).
+    """
     models = {k: _parse_model(v) for k, v in raw.get("models", {}).items()}
 
     _ROLE_MIGRATION = {"inference": "node", "infra": "gateway"}
@@ -150,17 +145,17 @@ def load_cluster_config(path: Path) -> ClusterConfig:
         if raw_role != role:
             import warnings
 
+            # stacklevel=2: when called via load_cluster_config, warning
+            # points to the caller of load_cluster_config. Direct callers
+            # of parse_cluster_config will see the warning attributed one
+            # frame too deep — acceptable since the admin UI is the primary
+            # direct caller and doesn't rely on warning attribution.
             warnings.warn(
                 f"Node '{k}': role '{raw_role}' is deprecated, use '{role}' instead",
                 DeprecationWarning,
-                stacklevel=1,
+                stacklevel=2,
             )
-        if v.get("user"):
-            user = v["user"]
-        elif os.environ.get("TF_SSH_USER"):
-            user = os.environ["TF_SSH_USER"]
-        else:
-            user = os.environ.get("USER", "unknown")
+        user = v.get("user", "")
         nodes[k] = Node(ip=v["ip"], ram_gb=v["ram_gb"], user=user, role=role)
 
     assignments: dict[str, list[Assignment]] = {}
@@ -187,6 +182,33 @@ def load_cluster_config(path: Path) -> ClusterConfig:
     ]
 
     return ClusterConfig(models=models, nodes=nodes, assignments=assignments, external_endpoints=external_endpoints)
+
+
+def load_cluster_config(path: Path) -> ClusterConfig:
+    """Load and parse node-assignments.yaml into a ClusterConfig.
+
+    Thin wrapper around parse_cluster_config that adds .env loading
+    and user resolution from environment variables.
+    """
+    repo_root = find_repo_root()
+    env_file = repo_root / ".env"
+    if env_file.exists():
+        load_dotenv(env_file, override=False)
+
+    with path.open() as f:
+        raw = yaml.safe_load(f)
+
+    config = parse_cluster_config(raw)
+
+    # Resolve users from env vars (parse_cluster_config stores as-is)
+    for node in config.nodes.values():
+        if not node.user:
+            if os.environ.get("TF_SSH_USER"):
+                node.user = os.environ["TF_SSH_USER"]
+            else:
+                node.user = os.environ.get("USER", "unknown")
+
+    return config
 
 
 OS_OVERHEAD_GB = 8
