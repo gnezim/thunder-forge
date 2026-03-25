@@ -12,6 +12,9 @@ COPY src/ /app/src/
 RUN pip install --no-cache-dir /app
 
 COPY admin/thunder_admin/ /app/thunder_admin/
+COPY admin/.streamlit/ /app/.streamlit/
+
+ENV PYTHONPATH=/app
 
 COPY admin/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
