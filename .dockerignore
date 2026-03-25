@@ -1,0 +1,16 @@
+.git/
+.venv/
+.worktrees/
+tests/
+docs/
+*.egg-info/
+dist/
+build/
+__pycache__/
+*.pyc
+.coverage
+.DS_Store
+.idea/
+.vscode/
+*.log
+*.err
