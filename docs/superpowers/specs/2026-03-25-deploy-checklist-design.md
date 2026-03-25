@@ -33,7 +33,7 @@ Checks run in parallel via `ThreadPoolExecutor`, one thread per slot.
 |------|------|----------------|
 | **config** | static (no SSH) | RAM fits on node, port is unique per node, model and node exist in config — delegates to existing `validate_config()` and scopes errors to the slot |
 | **ssh** | SSH to compute node | `echo ok` on `node.ip` using `node.user` — confirms connectivity |
-| **model** | SSH to compute node | For HuggingFace sources: `ls ~/.cache/huggingface/hub/models--{org}--{name}/` where path is derived by replacing `/` with `--` in `source.repo`. For `local`/`pip`/`convert` sources: returns `("warn", "non-HF source; skipping model check")` |
+| **model** | SSH to compute node | For `huggingface` source type: `ls ~/.cache/huggingface/hub/models--{org}--{name}/` where path is derived by replacing `/` with `--` in `source.repo`. For any other source type (`local`, `pip`, `convert`, or future types): returns `("warn", "non-HF source; skipping model check")` |
 | **service** | SSH to compute node | macOS: `launchctl list com.mlx-lm-{port}` and grep for `"PID"` key in output — PID present means running, absent means stopped/crashed. Linux: `systemctl is-active thunder-forge-{port}` |
 | **port** | HTTP | `GET http://{node_ip}:{port}/v1/models` with 3s timeout |
 
@@ -68,7 +68,7 @@ Five check functions, all returning `CheckResult`:
 - `check_service(node, slot) -> CheckResult` — SSH launchctl (grep PID) on macOS, systemctl on Linux
 - `check_port(node, slot) -> CheckResult` — HTTP GET /v1/models timeout 3s
 
-Each SSH check creates its own paramiko connection to `node.ip`/`node.user` — independent of the gateway `ssh_exec` helper (which is gateway-only).
+Each SSH check creates its own paramiko connection to `node.ip`/`node.user` — independent of the gateway `ssh_exec` helper (which is gateway-only). If `node["user"]` is empty in the raw config dict, fall back to the `TF_SSH_USER` environment variable; if still empty, return `("error", "node user not configured")` without attempting a connection.
 
 Entry point:
 
