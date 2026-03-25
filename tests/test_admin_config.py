@@ -111,6 +111,75 @@ def test_validate_config_catches_missing_node():
     assert any("missing_node" in e for e in errors)
 
 
+def test_roundtrip_admin_and_cli_equivalence(tmp_path):
+    """Admin JSONB->YAML->parse and CLI load_cluster_config produce equivalent configs."""
+    from unittest.mock import patch
+
+    import thunder_forge.cluster.config as config_module
+    from thunder_admin.config import jsonb_to_yaml
+    from thunder_forge.cluster.config import load_cluster_config, parse_cluster_config, validate_memory
+
+    config_json = {
+        "models": {
+            "coder": {
+                "source": {"type": "huggingface", "repo": "mlx-community/Qwen3-Coder-Next-4bit", "revision": "main"},
+                "disk_gb": 44.8,
+                "kv_per_32k_gb": 8,
+                "max_context": 131072,
+            },
+            "fast": {
+                "source": {"type": "huggingface", "repo": "mlx-community/Qwen3.5-9B", "revision": "main"},
+                "disk_gb": 5.6,
+                "kv_per_32k_gb": 0.3,
+                "max_context": 131072,
+            },
+        },
+        "nodes": {
+            "rock": {"ip": "192.168.1.61", "ram_gb": 32, "role": "gateway", "user": "infra_user"},
+            "msm1": {"ip": "192.168.1.101", "ram_gb": 128, "role": "node", "user": "admin"},
+        },
+        "assignments": {
+            "msm1": [
+                {"model": "coder", "port": 8000, "embedding": False},
+                {"model": "fast", "port": 8001},
+            ]
+        },
+        "external_endpoints": [
+            {"model_name": "qwen3-30b", "api_base": "http://example.com/v1", "api_key_env": "MY_KEY"}
+        ],
+    }
+
+    # Path 1: Admin JSONB -> YAML -> parse_cluster_config
+    yaml_str = jsonb_to_yaml(config_json)
+    parsed_raw = yaml.safe_load(yaml_str)
+    admin_config = parse_cluster_config(parsed_raw)
+
+    # Path 2: Write YAML to file -> load_cluster_config
+    yaml_path = tmp_path / "node-assignments.yaml"
+    yaml_path.write_text(yaml_str)
+
+    with patch.object(config_module, "find_repo_root", return_value=tmp_path):
+        cli_config = load_cluster_config(yaml_path)
+
+    # Compare models
+    assert set(admin_config.models.keys()) == set(cli_config.models.keys())
+    for name in admin_config.models:
+        assert admin_config.models[name].source.repo == cli_config.models[name].source.repo
+        assert admin_config.models[name].disk_gb == cli_config.models[name].disk_gb
+
+    # Compare nodes
+    assert set(admin_config.nodes.keys()) == set(cli_config.nodes.keys())
+    for name in admin_config.nodes:
+        assert admin_config.nodes[name].ip == cli_config.nodes[name].ip
+        assert admin_config.nodes[name].ram_gb == cli_config.nodes[name].ram_gb
+        assert admin_config.nodes[name].role == cli_config.nodes[name].role
+
+    # Memory validation should agree
+    admin_errors = validate_memory(admin_config)
+    cli_errors = validate_memory(cli_config)
+    assert admin_errors == cli_errors == []
+
+
 def test_validate_config_catches_duplicate_ports():
     from thunder_admin.config import validate_config
 
