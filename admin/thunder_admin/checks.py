@@ -1,11 +1,11 @@
 """Pre-deploy status checks for each assignment slot."""
 from __future__ import annotations
 
-import os  # noqa: F401
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa: F401
 from typing import Literal
 
-import paramiko  # noqa: F401
+import paramiko
 
 from thunder_admin.config import validate_config
 from thunder_forge.cluster.config import Assignment, ClusterConfig, Node, parse_cluster_config  # noqa: F401
@@ -23,3 +23,47 @@ def check_config(config: dict) -> CheckResult:
         return ("ok", "")
     joined = "; ".join(errors)
     return ("error", joined[:120])
+
+
+def _resolve_ssh_key() -> paramiko.PKey:
+    """Resolve SSH private key from container paths, in priority order."""
+    local_key = "/tmp/ssh_key"
+    if os.path.exists(local_key):
+        return paramiko.PKey.from_path(local_key)
+    env_key = os.environ.get("GATEWAY_SSH_KEY")
+    if env_key and os.path.exists(env_key):
+        return paramiko.PKey.from_path(env_key)
+    default = os.path.expanduser("~/.ssh/id_ed25519")
+    return paramiko.PKey.from_path(default)
+
+
+def check_ssh(node: Node) -> tuple[CheckResult, paramiko.SSHClient | None]:
+    """Open a paramiko SSH connection to the compute node. Returns (result, client).
+
+    The returned SSHClient should be passed to check_model and check_service for
+    connection reuse. Caller is responsible for closing the client.
+    """
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        pkey = _resolve_ssh_key()
+        client.connect(
+            hostname=node.ip,
+            username=node.user,
+            pkey=pkey,
+            timeout=_SSH_TIMEOUT,
+            look_for_keys=False,
+            allow_agent=False,
+        )
+        _, stdout, _ = client.exec_command("echo ok", timeout=_SSH_TIMEOUT)
+        out = stdout.read().decode().strip()
+        if out == "ok":
+            return ("ok", ""), client
+        return ("error", f"unexpected response: {out[:60]}"), None
+    except (TimeoutError, OSError) as e:
+        if "timed out" in str(e).lower() or isinstance(e, TimeoutError):
+            return ("error", "SSH timeout"), None
+        return ("error", str(e)[:120]), None
+    except Exception as e:
+        client.close()
+        return ("error", str(e)[:120]), None

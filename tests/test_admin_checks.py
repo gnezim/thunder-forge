@@ -1,7 +1,7 @@
 """Tests for admin deploy checks."""
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch  # noqa: F401
+from unittest.mock import MagicMock, patch
 
 # --- check_config ---
 
@@ -47,3 +47,60 @@ def test_check_config_error_message_capped_at_120_chars():
     status, detail = check_config(config)
     assert status == "error"
     assert len(detail) <= 120
+
+
+# --- check_ssh ---
+
+
+def test_check_ssh_ok():
+    from thunder_admin.checks import check_ssh
+
+    from thunder_forge.cluster.config import Node
+
+    node = Node(ip="10.0.0.1", ram_gb=64, user="admin")
+    mock_client = MagicMock()
+    mock_stdout = MagicMock()
+    mock_stdout.read.return_value = b"ok\n"
+    mock_client.exec_command.return_value = (MagicMock(), mock_stdout, MagicMock())
+
+    with patch("thunder_admin.checks.paramiko.SSHClient", return_value=mock_client):
+        with patch("thunder_admin.checks._resolve_ssh_key", return_value=MagicMock()):
+            result, conn = check_ssh(node)
+
+    assert result == ("ok", "")
+    assert conn is mock_client
+
+
+def test_check_ssh_timeout():
+    from thunder_admin.checks import check_ssh
+
+    from thunder_forge.cluster.config import Node
+
+    node = Node(ip="10.0.0.1", ram_gb=64, user="admin")
+    mock_client = MagicMock()
+    mock_client.connect.side_effect = TimeoutError("timed out")
+
+    with patch("thunder_admin.checks.paramiko.SSHClient", return_value=mock_client):
+        with patch("thunder_admin.checks._resolve_ssh_key", return_value=MagicMock()):
+            result, conn = check_ssh(node)
+
+    assert result == ("error", "SSH timeout")
+    assert conn is None
+
+
+def test_check_ssh_unexpected_exception():
+    from thunder_admin.checks import check_ssh
+
+    from thunder_forge.cluster.config import Node
+
+    node = Node(ip="10.0.0.1", ram_gb=64, user="admin")
+    mock_client = MagicMock()
+    mock_client.connect.side_effect = Exception("host key mismatch")
+
+    with patch("thunder_admin.checks.paramiko.SSHClient", return_value=mock_client):
+        with patch("thunder_admin.checks._resolve_ssh_key", return_value=MagicMock()):
+            result, conn = check_ssh(node)
+
+    assert result[0] == "error"
+    assert "host key mismatch" in result[1]
+    assert conn is None
