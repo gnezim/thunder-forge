@@ -104,3 +104,99 @@ def test_check_ssh_unexpected_exception():
     assert result[0] == "error"
     assert "host key mismatch" in result[1]
     assert conn is None
+
+
+# --- check_model ---
+
+
+def _make_ssh_conn(stdout_output: bytes, exit_code: int = 0) -> MagicMock:
+    """Return a mock SSHClient whose exec_command returns the given stdout."""
+    mock_client = MagicMock()
+    mock_stdout = MagicMock()
+    mock_stdout.read.return_value = stdout_output
+    mock_channel = MagicMock()
+    mock_channel.recv_exit_status.return_value = exit_code
+    mock_stdout.channel = mock_channel
+    mock_client.exec_command.return_value = (MagicMock(), mock_stdout, MagicMock())
+    return mock_client
+
+
+def test_check_model_hf_found():
+    from thunder_admin.checks import check_model
+
+    from thunder_forge.cluster.config import Assignment, ClusterConfig, Model, ModelSource, Node
+
+    node = Node(ip="10.0.0.1", ram_gb=64, user="admin")
+    slot = Assignment(model="llama", port=8000)
+    cluster = ClusterConfig(
+        models={"llama": Model(source=ModelSource(type="huggingface", repo="mlx-community/Llama-3.2-3B"))},
+        nodes={"msm1": node},
+        assignments={"msm1": [slot]},
+    )
+    conn = _make_ssh_conn(b"snapshots\nrefs\n", exit_code=0)
+
+    result = check_model(conn, node, slot, cluster)
+    assert result == ("ok", "")
+    # Verify the correct path was checked
+    call_args = conn.exec_command.call_args[0][0]
+    assert "models--mlx-community--Llama-3.2-3B" in call_args
+
+
+def test_check_model_hf_not_found():
+    from thunder_admin.checks import check_model
+
+    from thunder_forge.cluster.config import Assignment, ClusterConfig, Model, ModelSource, Node
+
+    node = Node(ip="10.0.0.1", ram_gb=64, user="admin")
+    slot = Assignment(model="llama", port=8000)
+    cluster = ClusterConfig(
+        models={"llama": Model(source=ModelSource(type="huggingface", repo="mlx-community/Llama-3.2-3B"))},
+        nodes={"msm1": node},
+        assignments={"msm1": [slot]},
+    )
+    conn = _make_ssh_conn(b"", exit_code=2)  # ls returns 2 = no such file
+
+    result = check_model(conn, node, slot, cluster)
+    assert result[0] == "error"
+    assert "not found" in result[1]
+
+
+def test_check_model_non_hf_source_returns_warn():
+    from thunder_admin.checks import check_model
+
+    from thunder_forge.cluster.config import Assignment, ClusterConfig, Model, ModelSource, Node
+
+    node = Node(ip="10.0.0.1", ram_gb=64, user="admin")
+    slot = Assignment(model="local_m", port=8000)
+    cluster = ClusterConfig(
+        models={"local_m": Model(source=ModelSource(type="local", path="/models/llama"))},
+        nodes={"msm1": node},
+        assignments={"msm1": [slot]},
+    )
+    conn = MagicMock()
+
+    for source_type in ("local", "pip", "convert"):
+        cluster.models["local_m"].source.type = source_type
+        result = check_model(conn, node, slot, cluster)
+        assert result == ("warn", "non-HF source; skipping model check")
+    conn.exec_command.assert_not_called()
+
+
+def test_check_model_ssh_exception():
+    from thunder_admin.checks import check_model
+
+    from thunder_forge.cluster.config import Assignment, ClusterConfig, Model, ModelSource, Node
+
+    node = Node(ip="10.0.0.1", ram_gb=64, user="admin")
+    slot = Assignment(model="llama", port=8000)
+    cluster = ClusterConfig(
+        models={"llama": Model(source=ModelSource(type="huggingface", repo="mlx-community/Llama"))},
+        nodes={"msm1": node},
+        assignments={"msm1": [slot]},
+    )
+    conn = MagicMock()
+    conn.exec_command.side_effect = Exception("channel closed")
+
+    result = check_model(conn, node, slot, cluster)
+    assert result[0] == "error"
+    assert "channel closed" in result[1]

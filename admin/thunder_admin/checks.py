@@ -8,7 +8,12 @@ from typing import Literal
 import paramiko
 
 from thunder_admin.config import validate_config
-from thunder_forge.cluster.config import Assignment, ClusterConfig, Node, parse_cluster_config  # noqa: F401
+from thunder_forge.cluster.config import (  # noqa: F401 (parse_cluster_config unused until task 6)
+    Assignment,
+    ClusterConfig,
+    Node,
+    parse_cluster_config,
+)
 
 CheckResult = tuple[Literal["ok", "warn", "error", "skip"], str]
 SlotChecks = dict[str, CheckResult]
@@ -69,3 +74,24 @@ def check_ssh(node: Node) -> tuple[CheckResult, paramiko.SSHClient | None]:
     except Exception as e:
         client.close()
         return ("error", str(e)[:120]), None
+
+
+def check_model(ssh_conn: paramiko.SSHClient, node: Node, slot: Assignment, cluster: ClusterConfig) -> CheckResult:
+    """Check HF model cache presence via SSH. Skips for non-HF source types."""
+    model = cluster.models.get(slot.model)
+    if model is None:
+        return ("error", f"model '{slot.model}' not in config")
+
+    if model.source.type != "huggingface":
+        return ("warn", "non-HF source; skipping model check")
+
+    slug = model.source.repo.replace("/", "--")
+    path = f"~/.cache/huggingface/hub/models--{slug}"
+    try:
+        _, stdout, _ = ssh_conn.exec_command(f"ls {path}", timeout=_SSH_TIMEOUT)
+        exit_code = stdout.channel.recv_exit_status()
+        if exit_code == 0:
+            return ("ok", "")
+        return ("error", f"not found: {path}")
+    except Exception as e:
+        return ("error", str(e)[:120])
