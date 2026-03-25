@@ -1,6 +1,6 @@
 """Tests for auth module — password hashing and session timeout."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 def test_hash_and_verify_password():
@@ -14,12 +14,12 @@ def test_hash_and_verify_password():
 def test_is_session_expired_within_timeout():
     from thunder_admin.auth import is_session_expired
 
-    login_time = datetime.now(timezone.utc)
+    login_time = datetime.now(UTC)
     assert not is_session_expired(login_time, timeout_hours=24)
 
 
 def test_is_session_expired_after_timeout():
     from thunder_admin.auth import is_session_expired
 
-    login_time = datetime.now(timezone.utc) - timedelta(hours=25)
+    login_time = datetime.now(UTC) - timedelta(hours=25)
     assert is_session_expired(login_time, timeout_hours=24)

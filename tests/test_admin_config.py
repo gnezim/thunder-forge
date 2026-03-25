@@ -115,8 +115,9 @@ def test_roundtrip_admin_and_cli_equivalence(tmp_path):
     """Admin JSONB->YAML->parse and CLI load_cluster_config produce equivalent configs."""
     from unittest.mock import patch
 
-    import thunder_forge.cluster.config as config_module
     from thunder_admin.config import jsonb_to_yaml
+
+    import thunder_forge.cluster.config as config_module
     from thunder_forge.cluster.config import load_cluster_config, parse_cluster_config, validate_memory
 
     config_json = {

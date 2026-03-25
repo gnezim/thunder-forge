@@ -59,8 +59,14 @@ def ssh_run(
         )
     wrapped = f"{effective_shell} -lc {shlex.quote(cmd)}"
     ssh_cmd = [
-        "ssh", *_ssh_key_args(), "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
-        f"{user}@{ip}", wrapped,
+        "ssh",
+        *_ssh_key_args(),
+        "-o",
+        "ConnectTimeout=10",
+        "-o",
+        "StrictHostKeyChecking=no",
+        f"{user}@{ip}",
+        wrapped,
     ]
     return subprocess.run(
         ssh_cmd,
@@ -98,8 +104,14 @@ def scp_content(
             timeout=15,
         )
     ssh_cmd = [
-        "ssh", *_ssh_key_args(), "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=no",
-        f"{user}@{ip}", f"cat > {remote_path}",
+        "ssh",
+        *_ssh_key_args(),
+        "-o",
+        "ConnectTimeout=10",
+        "-o",
+        "StrictHostKeyChecking=no",
+        f"{user}@{ip}",
+        f"cat > {remote_path}",
     ]
     return subprocess.run(
         ssh_cmd,

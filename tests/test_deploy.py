@@ -140,8 +140,12 @@ def test_generate_plist_with_extra_args(config_path: Path) -> None:
 def test_generate_plist_log_paths() -> None:
     """Logs go to ~/logs/mlx-lm-{port}.log, not /tmp/."""
     node = Node(
-        ip="192.168.1.101", ram_gb=128, user="admin", role="node",
-        home_dir="/Users/admin", homebrew_prefix="/opt/homebrew",
+        ip="192.168.1.101",
+        ram_gb=128,
+        user="admin",
+        role="node",
+        home_dir="/Users/admin",
+        homebrew_prefix="/opt/homebrew",
     )
     model = Model(source=ModelSource(type="huggingface", repo="test/model"), disk_gb=10)
     slot = Assignment(model="test", port=8000)
