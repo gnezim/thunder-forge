@@ -30,7 +30,7 @@ def render(user: dict):
 
     # Models table
     if models:
-        for name, model in models.items():
+        for name, model in list(models.items()):
             source = model.get("source", {})
             with st.expander(f"**{name}** — {source.get('repo', 'N/A')}", expanded=False):
                 col1, col2, col3 = st.columns(3)
@@ -151,51 +151,63 @@ def render(user: dict):
                 info = fetch_model_info(repo)
                 config_json = fetch_config_json(repo) or {}
                 meta = parse_model_metadata(info, config_json)
-
-            if not meta["has_safetensors"]:
-                st.warning("Repo does not contain safetensors files.")
-            if not meta["has_tokenizer"]:
-                st.warning("Repo missing tokenizer_config.json (required by mlx_lm.server).")
-
-            with st.form("confirm_model"):
-                st.write(f"**Repo:** {repo}")
-                disk_gb = st.number_input("Disk GB", value=meta["disk_gb"], step=0.1)
-                ram_gb = st.number_input("RAM GB override (0 = auto)", value=0.0, step=0.1)
-                max_context = st.number_input("Max context", value=meta["max_context"], step=1024)
-                kv_per_32k_gb = st.number_input("KV per 32k GB", value=meta["kv_per_32k_gb"], step=0.01)
-                revision = st.text_input("Revision", value=meta["revision"])
-                serving = st.selectbox("Serving", ["", "embedding", "cli", "mlx-openai-server"])
-                notes = st.text_area("Notes")
-
-                if st.form_submit_button("Add Model"):
-                    if not name:
-                        st.error("Model name is required")
-                    elif name in models:
-                        st.error(f"Model '{name}' already exists")
-                    else:
-                        new_model = {
-                            "source": {
-                                "type": "huggingface",
-                                "repo": repo,
-                                "revision": revision,
-                            },
-                            "disk_gb": disk_gb,
-                            "kv_per_32k_gb": kv_per_32k_gb,
-                            "max_context": max_context,
-                            "extra_args": None,
-                            "serving": serving,
-                            "notes": notes,
-                        }
-                        if ram_gb > 0:
-                            new_model["ram_gb"] = ram_gb
-                        config["models"][name] = new_model
-                        if save_config_or_error(st, config, user, f"Added model '{name}'"):
-                            st.success(f"Added '{name}'")
-                            st.rerun()
-
+            st.session_state["hf_pending"] = {"name": name, "repo": repo, "meta": meta}
         except Exception as e:
             error_msg = str(e)
             if "403" in error_msg:
                 st.error("This repo requires authentication. Set HF_TOKEN in docker-compose environment.")
             else:
                 st.warning(f"HF API unavailable: {error_msg}. Enter values manually.")
+
+    if st.session_state.get("hf_pending"):
+        pending = st.session_state["hf_pending"]
+        pending_name = pending["name"]
+        pending_repo = pending["repo"]
+        meta = pending["meta"]
+
+        if not meta["has_safetensors"]:
+            st.warning("Repo does not contain safetensors files.")
+        if not meta["has_tokenizer"]:
+            st.warning("Repo missing tokenizer_config.json (required by mlx_lm.server).")
+
+        with st.form("confirm_model"):
+            st.write(f"**Repo:** {pending_repo}")
+            disk_gb = st.number_input("Disk GB", value=meta["disk_gb"], step=0.1)
+            ram_gb = st.number_input("RAM GB override (0 = auto)", value=0.0, step=0.1)
+            max_context = st.number_input("Max context", value=meta["max_context"], step=1024)
+            kv_per_32k_gb = st.number_input("KV per 32k GB", value=meta["kv_per_32k_gb"], step=0.01)
+            revision = st.text_input("Revision", value=meta["revision"])
+            serving = st.selectbox("Serving", ["", "embedding", "cli", "mlx-openai-server"])
+            notes = st.text_area("Notes")
+            col_add, col_cancel = st.columns(2)
+
+            if col_add.form_submit_button("Add Model"):
+                if not pending_name:
+                    st.error("Model name is required")
+                elif pending_name in models:
+                    st.error(f"Model '{pending_name}' already exists")
+                else:
+                    new_model = {
+                        "source": {
+                            "type": "huggingface",
+                            "repo": pending_repo,
+                            "revision": revision,
+                        },
+                        "disk_gb": disk_gb,
+                        "kv_per_32k_gb": kv_per_32k_gb,
+                        "max_context": max_context,
+                        "extra_args": None,
+                        "serving": serving,
+                        "notes": notes,
+                    }
+                    if ram_gb > 0:
+                        new_model["ram_gb"] = ram_gb
+                    config["models"][pending_name] = new_model
+                    if save_config_or_error(st, config, user, f"Added model '{pending_name}'"):
+                        del st.session_state["hf_pending"]
+                        st.success(f"Added '{pending_name}'")
+                        st.rerun()
+
+            if col_cancel.form_submit_button("Cancel"):
+                del st.session_state["hf_pending"]
+                st.rerun()

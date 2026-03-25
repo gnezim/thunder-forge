@@ -19,8 +19,8 @@ def _get_headers() -> dict[str, str]:
 
 
 def fetch_model_info(repo: str) -> dict:
-    """Fetch model info from HuggingFace API."""
-    url = f"{HF_API_BASE}/{repo}"
+    """Fetch model info from HuggingFace API (with blob sizes)."""
+    url = f"{HF_API_BASE}/{repo}?blobs=true"
     resp = httpx.get(url, headers=_get_headers(), timeout=TIMEOUT)
     resp.raise_for_status()
     return resp.json()
@@ -28,7 +28,7 @@ def fetch_model_info(repo: str) -> dict:
 
 def fetch_config_json(repo: str, revision: str = "main") -> dict | None:
     """Fetch config.json from a HuggingFace model repo."""
-    url = f"https://huggingface.co/{repo}/resolve/{revision}/config.json"
+    url = f"https://huggingface.co/{repo}/raw/{revision}/config.json"
     try:
         resp = httpx.get(url, headers=_get_headers(), timeout=TIMEOUT)
         resp.raise_for_status()
@@ -48,11 +48,14 @@ def parse_model_metadata(api_response: dict, config_json: dict) -> dict:
     has_safetensors = any(f.endswith(".safetensors") for f in filenames)
     has_tokenizer = "tokenizer_config.json" in filenames
 
-    max_context = config_json.get("max_position_embeddings", 0)
+    # VLM models (e.g. Qwen3.5) nest text config under "text_config"
+    text_cfg = config_json.get("text_config", config_json)
 
-    num_kv_heads = config_json.get("num_key_value_heads", 0)
-    head_dim = config_json.get("head_dim", 0)
-    num_layers = config_json.get("num_hidden_layers", 0)
+    max_context = text_cfg.get("max_position_embeddings", 0)
+
+    num_kv_heads = text_cfg.get("num_key_value_heads", 0)
+    head_dim = text_cfg.get("head_dim", 0)
+    num_layers = text_cfg.get("num_hidden_layers", 0)
     if num_kv_heads and head_dim and num_layers:
         kv_per_32k_gb = num_kv_heads * head_dim * num_layers * 2 * 2 * 32768 / 1e9
     else:
