@@ -59,9 +59,11 @@ def check_ssh(node: Node) -> tuple[CheckResult, paramiko.SSHClient | None]:
         out = stdout.read().decode().strip()
         if out == "ok":
             return ("ok", ""), client
+        client.close()
         return ("error", f"unexpected response: {out[:60]}"), None
     except (TimeoutError, OSError) as e:
-        if "timed out" in str(e).lower() or isinstance(e, TimeoutError):
+        client.close()
+        if "timed out" in str(e).lower():
             return ("error", "SSH timeout"), None
         return ("error", str(e)[:120]), None
     except Exception as e:
