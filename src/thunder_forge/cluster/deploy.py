@@ -2,10 +2,81 @@
 
 from __future__ import annotations
 
+import atexit
+import os
+import threading
+import time as time_mod
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 from thunder_forge.cluster.config import Assignment, ClusterConfig, Model, Node
 from thunder_forge.cluster.ssh import scp_content, ssh_run
+
+LOCK_FILE = "/tmp/thunder-forge-deploy.lock"
+HEARTBEAT_INTERVAL = 30
+
+
+def parse_lock_file(content: str | None) -> dict | None:
+    """Parse lock file content. Returns dict with pid/heartbeat or None."""
+    if not content or not content.strip():
+        return None
+    result = {}
+    for line in content.strip().split("\n"):
+        if ":" in line:
+            key, val = line.split(":", 1)
+            key = key.strip().lower()
+            try:
+                result[key] = int(val.strip())
+            except ValueError:
+                result[key] = val.strip()
+    if "pid" not in result:
+        return None
+    return result
+
+
+def format_lock_file(pid: int) -> str:
+    """Format lock file content with PID and current timestamp."""
+    return f"PID:{pid}\nHEARTBEAT:{int(time_mod.time())}"
+
+
+def _acquire_lock() -> bool:
+    """Acquire the gateway deploy lock. Returns True if acquired."""
+    lock_path = Path(LOCK_FILE)
+    if lock_path.exists():
+        content = lock_path.read_text()
+        lock = parse_lock_file(content)
+        if lock:
+            pid = lock.get("pid")
+            if pid:
+                try:
+                    os.kill(pid, 0)
+                except OSError:
+                    pass  # PID dead, stale lock
+                else:
+                    heartbeat = lock.get("heartbeat", 0)
+                    if isinstance(heartbeat, int) and time_mod.time() - heartbeat < 300:
+                        return False
+    lock_path.write_text(format_lock_file(os.getpid()))
+    return True
+
+
+def _release_lock() -> None:
+    """Release the gateway deploy lock."""
+    lock_path = Path(LOCK_FILE)
+    if lock_path.exists():
+        content = lock_path.read_text()
+        lock = parse_lock_file(content)
+        if lock and lock.get("pid") == os.getpid():
+            lock_path.unlink(missing_ok=True)
+
+
+def _heartbeat_loop(stop_event: threading.Event) -> None:
+    """Update lock file heartbeat periodically."""
+    while not stop_event.is_set():
+        lock_path = Path(LOCK_FILE)
+        if lock_path.exists():
+            lock_path.write_text(format_lock_file(os.getpid()))
+        stop_event.wait(HEARTBEAT_INTERVAL)
 
 
 def _require_resolved(node: Node, node_name: str) -> None:
@@ -115,7 +186,8 @@ def install_node_tools(node: Node) -> None:
     """Install mlx-lm (with socks proxy support) and remove legacy vllm-mlx."""
     ssh_run(node.user, node.ip, "uv tool uninstall vllm-mlx 2>/dev/null || true", timeout=30, shell=node.shell)
     result = ssh_run(
-        node.user, node.ip,
+        node.user,
+        node.ip,
         "uv tool install --force mlx-lm --with 'httpx[socks]'",
         timeout=120,
         shell=node.shell,
@@ -156,7 +228,8 @@ def deploy_node(
 
     # Clean up legacy vllm-mlx plists
     legacy_ls = ssh_run(
-        node.user, node.ip,
+        node.user,
+        node.ip,
         "ls ~/Library/LaunchAgents/com.vllm-mlx-*.plist 2>/dev/null || true",
         shell=node.shell,
     )
@@ -294,61 +367,75 @@ def run_deploy(config: ClusterConfig, *, target_node: str | None = None, dry_run
         print("\nRun without --dry-run to execute.")
         return True
 
-    # Real deploy — continue on partial failure
-    succeeded: list[str] = []
-    failed: dict[str, str] = {}
+    # Acquire deploy lock
+    if not _acquire_lock():
+        print("Error: another deploy is already running (lock file exists and process is alive)")
+        return False
 
-    for node_name in deploy_nodes:
-        print(f"\nDeploying to {node_name}...")
-        errors = deploy_node(node_name, config)
-        if errors:
-            failed[node_name] = "; ".join(errors)
-            for err in errors:
-                print(f"  ✗ {err}")
-        else:
-            succeeded.append(node_name)
-            print("  ✓ Plists deployed")
+    stop_event = threading.Event()
+    heartbeat_thread = threading.Thread(target=_heartbeat_loop, args=(stop_event,), daemon=True)
+    heartbeat_thread.start()
+    atexit.register(_release_lock)
 
-    # LiteLLM restart — only if at least one node succeeded
-    litellm_ok = False
-    if succeeded:
-        print("\nRestarting LiteLLM...")
-        if restart_litellm(config):
-            print("  ✓ LiteLLM restarted")
-            litellm_ok = True
-        else:
-            if target_node:
-                print("  Warning: LiteLLM restart failed (non-fatal with --node)")
-                litellm_ok = True  # non-fatal
+    try:
+        # Real deploy — continue on partial failure
+        succeeded: list[str] = []
+        failed: dict[str, str] = {}
+
+        for node_name in deploy_nodes:
+            print(f"\nDeploying to {node_name}...")
+            errors = deploy_node(node_name, config)
+            if errors:
+                failed[node_name] = "; ".join(errors)
+                for err in errors:
+                    print(f"  ✗ {err}")
             else:
-                print("  ✗ LiteLLM restart failed")
-    elif not target_node:
-        print("\nSkipping LiteLLM restart — no nodes deployed successfully")
+                succeeded.append(node_name)
+                print("  ✓ Plists deployed")
 
-    # Health poll — only successfully deployed nodes
-    if succeeded:
-        print("\nWaiting for services to become healthy...")
-        for node_name in succeeded:
-            node = config.nodes[node_name]
-            for slot in config.assignments[node_name]:
-                healthy = health_poll(node.ip, slot.port)
-                status = "✓ healthy" if healthy else "✗ timeout"
-                print(f"  {status} — {node_name}:{slot.port} ({slot.model})")
-                if not healthy:
-                    failed[node_name] = failed.get(node_name, "") + f" port {slot.port} unhealthy"
+        # LiteLLM restart — only if at least one node succeeded
+        litellm_ok = False
+        if succeeded:
+            print("\nRestarting LiteLLM...")
+            if restart_litellm(config):
+                print("  ✓ LiteLLM restarted")
+                litellm_ok = True
+            else:
+                if target_node:
+                    print("  Warning: LiteLLM restart failed (non-fatal with --node)")
+                    litellm_ok = True  # non-fatal
+                else:
+                    print("  ✗ LiteLLM restart failed")
+        elif not target_node:
+            print("\nSkipping LiteLLM restart — no nodes deployed successfully")
 
-    # Summary
-    total = len(deploy_nodes)
-    ok_count = len(succeeded) - len([n for n in succeeded if n in failed])
-    print(f"\nDeploy complete: {ok_count}/{total} nodes succeeded")
-    for node_name in deploy_nodes:
-        if node_name in failed:
-            print(f"  ✗ {node_name} — {failed[node_name]}")
-        else:
-            slots = config.assignments[node_name]
-            print(f"  ✓ {node_name} — {len(slots)} services running")
+        # Health poll — only successfully deployed nodes
+        if succeeded:
+            print("\nWaiting for services to become healthy...")
+            for node_name in succeeded:
+                node = config.nodes[node_name]
+                for slot in config.assignments[node_name]:
+                    healthy = health_poll(node.ip, slot.port)
+                    status = "✓ healthy" if healthy else "✗ timeout"
+                    print(f"  {status} — {node_name}:{slot.port} ({slot.model})")
+                    if not healthy:
+                        failed[node_name] = failed.get(node_name, "") + f" port {slot.port} unhealthy"
 
-    if failed:
-        print("\nFix failed nodes and re-run: thunder-forge deploy --node <name>")
+        # Summary
+        total = len(deploy_nodes)
+        ok_count = len(succeeded) - len([n for n in succeeded if n in failed])
+        print(f"\nDeploy complete: {ok_count}/{total} nodes succeeded")
+        for node_name in deploy_nodes:
+            if node_name in failed:
+                print(f"  ✗ {node_name} — {failed[node_name]}")
+            else:
+                slots = config.assignments[node_name]
+                print(f"  ✓ {node_name} — {len(slots)} services running")
 
-    return len(failed) == 0 and litellm_ok
+        if failed:
+            print("\nFix failed nodes and re-run: thunder-forge deploy --node <name>")
+
+        return len(failed) == 0 and litellm_ok
+    finally:
+        stop_event.set()
+        _release_lock()
