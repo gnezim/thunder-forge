@@ -8,11 +8,11 @@ from typing import Literal
 import paramiko
 
 from thunder_admin.config import validate_config
-from thunder_forge.cluster.config import (  # noqa: F401 (parse_cluster_config unused until task 6)
+from thunder_forge.cluster.config import (
     Assignment,
     ClusterConfig,
     Node,
-    parse_cluster_config,
+    parse_cluster_config,  # noqa: F401
 )
 
 CheckResult = tuple[Literal["ok", "warn", "error", "skip"], str]
