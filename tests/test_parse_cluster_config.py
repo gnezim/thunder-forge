@@ -2,7 +2,7 @@
 
 import pytest
 
-from thunder_forge.cluster.config import ServerArgs, parse_cluster_config
+from thunder_forge.cluster.config import parse_cluster_config
 
 
 def test_parse_cluster_config_basic():
