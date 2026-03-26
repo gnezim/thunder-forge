@@ -9,6 +9,7 @@ import streamlit as st
 
 from thunder_admin import db
 from thunder_admin.config import jsonb_to_yaml
+from thunder_admin.tz import format_dt
 
 
 def render(user: dict):
@@ -33,7 +34,7 @@ def render(user: dict):
 
         with st.expander(
             f"**v{v['id']}** — {v.get('author_name', 'system')} — "
-            f"{v['created_at'].strftime('%Y-%m-%d %H:%M')} — "
+            f"{format_dt(v['created_at'], user)} — "
             f"{v.get('comment', '')}{deploy_badge}",
             expanded=False,
         ):

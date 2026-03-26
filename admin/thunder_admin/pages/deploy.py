@@ -18,6 +18,7 @@ from thunder_admin.deploy import (
     read_gateway_lock,
     start_deploy,
 )
+from thunder_admin.tz import format_dt
 
 _STATUS_ICONS = {
     "ok": ":green[✓]",
@@ -114,7 +115,7 @@ def render(user: dict):
         st.warning(
             f"Deploy in progress (started by "
             f"{running.get('triggered_by_name', '?')} at "
-            f"{running['started_at'].strftime('%H:%M')})"
+            f"{format_dt(running['started_at'], user, fmt='%H:%M')})"
         )
 
         # Show streaming output
@@ -187,7 +188,7 @@ def render(user: dict):
             with st.expander(
                 f":{color}[Deploy #{d['id']}] — "
                 f"{d.get('triggered_by_name', '?')} — "
-                f"{d['started_at'].strftime('%Y-%m-%d %H:%M')} — "
+                f"{format_dt(d['started_at'], user)} — "
                 f"config v{d['config_id']} — {d['status']}{duration}",
                 expanded=False,
             ):

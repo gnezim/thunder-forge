@@ -9,6 +9,7 @@ import streamlit as st
 
 from thunder_admin import db
 from thunder_admin.deploy import check_gateway_connectivity, ssh_exec
+from thunder_admin.tz import format_dt
 
 
 def render(user: dict):
@@ -38,7 +39,7 @@ def render(user: dict):
     if last_deploy:
         col3.metric(
             "Last Deploy",
-            last_deploy["started_at"].strftime("%Y-%m-%d %H:%M"),
+            format_dt(last_deploy["started_at"], user),
         )
     else:
         col3.metric("Last Deploy", "Never")
