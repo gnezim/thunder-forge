@@ -95,3 +95,29 @@ def check_model(ssh_conn: paramiko.SSHClient, node: Node, slot: Assignment, clus
         return ("error", f"not found: {path}")
     except Exception as e:
         return ("error", str(e)[:120])
+
+
+def check_service(ssh_conn: paramiko.SSHClient, node: Node, slot: Assignment) -> CheckResult:
+    """Check if the mlx_lm.server service is running on the node."""
+    try:
+        _, uname_out, _ = ssh_conn.exec_command("uname -s", timeout=_SSH_TIMEOUT)
+        platform = uname_out.read().decode().strip()
+
+        if platform == "Darwin":
+            label = f"com.mlx-lm-{slot.port}"
+            _, stdout, _ = ssh_conn.exec_command(f"launchctl list {label}", timeout=_SSH_TIMEOUT)
+            output = stdout.read().decode()
+            exit_code = stdout.channel.recv_exit_status()
+            if exit_code != 0 or '"PID"' not in output:
+                return ("error", f"{label} not found or not running")
+            return ("ok", "")
+        else:
+            svc = f"thunder-forge-{slot.port}"
+            _, stdout, _ = ssh_conn.exec_command(f"systemctl is-active {svc}", timeout=_SSH_TIMEOUT)
+            output = stdout.read().decode().strip()
+            exit_code = stdout.channel.recv_exit_status()
+            if output == "active" and exit_code == 0:
+                return ("ok", "")
+            return ("error", f"{svc} is {output or 'not active'}")
+    except Exception as e:
+        return ("error", str(e)[:120])

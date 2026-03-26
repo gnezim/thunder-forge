@@ -200,3 +200,106 @@ def test_check_model_ssh_exception():
     result = check_model(conn, node, slot, cluster)
     assert result[0] == "error"
     assert "channel closed" in result[1]
+
+
+# --- check_service ---
+
+
+def _make_ssh_for_service(uname_output: bytes, service_stdout: bytes, service_exit: int) -> MagicMock:
+    """Return a mock SSH client that returns uname output, then service output."""
+    mock_client = MagicMock()
+    call_count = [0]
+
+    def exec_command(cmd, timeout=None):
+        call_count[0] += 1
+        mock_stdout = MagicMock()
+        mock_channel = MagicMock()
+        mock_stdout.channel = mock_channel
+        if "uname" in cmd:
+            mock_stdout.read.return_value = uname_output
+            mock_channel.recv_exit_status.return_value = 0
+        else:
+            mock_stdout.read.return_value = service_stdout
+            mock_channel.recv_exit_status.return_value = service_exit
+        return MagicMock(), mock_stdout, MagicMock()
+
+    mock_client.exec_command.side_effect = exec_command
+    return mock_client
+
+
+def test_check_service_macos_running():
+    from thunder_admin.checks import check_service
+
+    from thunder_forge.cluster.config import Assignment, Node
+
+    node = Node(ip="10.0.0.1", ram_gb=64, user="admin")
+    slot = Assignment(model="llama", port=8000)
+    launchctl_output = b'{\n\t"PID" = 12345;\n\t"Label" = "com.mlx-lm-8000";\n}\n'
+    conn = _make_ssh_for_service(b"Darwin\n", launchctl_output, 0)
+
+    result = check_service(conn, node, slot)
+    assert result == ("ok", "")
+    # Verify launchctl was used
+    calls = [str(c) for c in conn.exec_command.call_args_list]
+    assert any("launchctl" in c for c in calls)
+    assert any("com.mlx-lm-8000" in c for c in calls)
+
+
+def test_check_service_macos_not_running():
+    from thunder_admin.checks import check_service
+
+    from thunder_forge.cluster.config import Assignment, Node
+
+    node = Node(ip="10.0.0.1", ram_gb=64, user="admin")
+    slot = Assignment(model="llama", port=8000)
+    # launchctl output without PID = not running
+    launchctl_output = b'{\n\t"Label" = "com.mlx-lm-8000";\n}\n'
+    conn = _make_ssh_for_service(b"Darwin\n", launchctl_output, 0)
+
+    result = check_service(conn, node, slot)
+    assert result[0] == "error"
+    assert "com.mlx-lm-8000" in result[1]
+
+
+def test_check_service_macos_not_found():
+    from thunder_admin.checks import check_service
+
+    from thunder_forge.cluster.config import Assignment, Node
+
+    node = Node(ip="10.0.0.1", ram_gb=64, user="admin")
+    slot = Assignment(model="llama", port=8000)
+    conn = _make_ssh_for_service(b"Darwin\n", b"Could not find service\n", 1)
+
+    result = check_service(conn, node, slot)
+    assert result[0] == "error"
+    assert "com.mlx-lm-8000" in result[1]
+
+
+def test_check_service_linux_active():
+    from thunder_admin.checks import check_service
+
+    from thunder_forge.cluster.config import Assignment, Node
+
+    node = Node(ip="10.0.0.2", ram_gb=64, user="ubuntu")
+    slot = Assignment(model="llama", port=9000)
+    conn = _make_ssh_for_service(b"Linux\n", b"active\n", 0)
+
+    result = check_service(conn, node, slot)
+    assert result == ("ok", "")
+    calls = [str(c) for c in conn.exec_command.call_args_list]
+    assert any("systemctl" in c for c in calls)
+    assert any("thunder-forge-9000" in c for c in calls)
+
+
+def test_check_service_linux_inactive():
+    from thunder_admin.checks import check_service
+
+    from thunder_forge.cluster.config import Assignment, Node
+
+    node = Node(ip="10.0.0.2", ram_gb=64, user="ubuntu")
+    slot = Assignment(model="llama", port=9000)
+    conn = _make_ssh_for_service(b"Linux\n", b"inactive\n", 3)
+
+    result = check_service(conn, node, slot)
+    assert result[0] == "error"
+    assert "thunder-forge-9000" in result[1]
