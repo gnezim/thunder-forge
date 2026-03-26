@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa: F401
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Literal
 
 import httpx
@@ -13,7 +13,7 @@ from thunder_forge.cluster.config import (
     Assignment,
     ClusterConfig,
     Node,
-    parse_cluster_config,  # noqa: F401
+    parse_cluster_config,
 )
 
 CheckResult = tuple[Literal["ok", "warn", "error", "skip"], str]
@@ -136,3 +136,73 @@ def check_port(node: Node, slot: Assignment) -> CheckResult:
         return ("error", "timeout")
     except Exception as e:
         return ("error", str(e)[:120])
+
+
+def run_all_checks(config: dict) -> dict[tuple[str, int], SlotChecks]:
+    """Run all checks for all assignment slots in parallel. Returns (node_name, port) → SlotChecks.
+
+    Internally parses raw config dict via parse_cluster_config() to get Node/Assignment dataclasses.
+    Config check runs once globally. SSH checks run per-slot in a ThreadPoolExecutor.
+    """
+    assignments_raw = config.get("assignments", {})
+    if not assignments_raw:
+        return {}
+
+    cluster = parse_cluster_config(config)
+    config_result = check_config(config)
+
+    def check_slot(node_name: str, slot: Assignment) -> tuple[tuple[str, int], SlotChecks]:
+        node = cluster.nodes[node_name]
+        user = node.user or os.environ.get("TF_SSH_USER", "")
+        if not user:
+            return (node_name, slot.port), {
+                "config": config_result,
+                "ssh": ("error", "node user not configured"),
+                "model": ("skip", ""),
+                "service": ("skip", ""),
+                "port": ("skip", ""),
+            }
+
+        # Clone node with resolved user
+        resolved_node = Node(ip=node.ip, ram_gb=node.ram_gb, user=user, role=node.role)
+
+        ssh_result, ssh_conn = check_ssh(resolved_node)
+        if ssh_result[0] != "ok" or ssh_conn is None:
+            return (node_name, slot.port), {
+                "config": config_result,
+                "ssh": ssh_result,
+                "model": ("skip", ""),
+                "service": ("skip", ""),
+                "port": ("skip", ""),
+            }
+
+        try:
+            model_result = check_model(ssh_conn, resolved_node, slot, cluster)
+            service_result = check_service(ssh_conn, resolved_node, slot)
+        finally:
+            ssh_conn.close()
+
+        port_result: CheckResult = ("skip", "") if service_result[0] != "ok" else check_port(resolved_node, slot)
+
+        return (node_name, slot.port), {
+            "config": config_result,
+            "ssh": ssh_result,
+            "model": model_result,
+            "service": service_result,
+            "port": port_result,
+        }
+
+    # Build flat list of (node_name, Assignment) pairs
+    slots: list[tuple[str, Assignment]] = []
+    for node_name, node_slots in cluster.assignments.items():
+        for slot in node_slots:
+            slots.append((node_name, slot))
+
+    results: dict[tuple[str, int], SlotChecks] = {}
+    with ThreadPoolExecutor() as executor:
+        futures = {executor.submit(check_slot, node_name, slot): (node_name, slot) for node_name, slot in slots}
+        for future in as_completed(futures):
+            key, slot_checks = future.result()
+            results[key] = slot_checks
+
+    return results

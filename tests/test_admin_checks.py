@@ -372,3 +372,139 @@ def test_check_port_connection_error():
 
     assert result[0] == "error"
     assert "refused" in result[1]
+
+
+# --- run_all_checks ---
+
+def _full_config() -> dict:
+    return {
+        "models": {
+            "llama": {
+                "source": {"type": "huggingface", "repo": "mlx-community/Llama-3.2-3B"},
+                "disk_gb": 2.0,
+            }
+        },
+        "nodes": {"msm1": {"ip": "10.0.0.1", "ram_gb": 64, "role": "node", "user": "admin"}},
+        "assignments": {"msm1": [{"model": "llama", "port": 8000, "embedding": False}]},
+        "external_endpoints": [],
+    }
+
+
+def test_run_all_checks_happy_path():
+    from thunder_admin.checks import run_all_checks
+
+    with patch("thunder_admin.checks.check_config", return_value=("ok", "")):
+        with patch("thunder_admin.checks.check_ssh", return_value=(("ok", ""), MagicMock())):
+            with patch("thunder_admin.checks.check_model", return_value=("ok", "")):
+                with patch("thunder_admin.checks.check_service", return_value=("ok", "")):
+                    with patch("thunder_admin.checks.check_port", return_value=("ok", "")):
+                        results = run_all_checks(_full_config())
+
+    assert ("msm1", 8000) in results
+    slot = results[("msm1", 8000)]
+    assert slot["config"] == ("ok", "")
+    assert slot["ssh"] == ("ok", "")
+    assert slot["model"] == ("ok", "")
+    assert slot["service"] == ("ok", "")
+    assert slot["port"] == ("ok", "")
+
+
+def test_run_all_checks_ssh_fail_skips_downstream():
+    from thunder_admin.checks import run_all_checks
+
+    with patch("thunder_admin.checks.check_config", return_value=("ok", "")):
+        with patch("thunder_admin.checks.check_ssh", return_value=(("error", "SSH timeout"), None)):
+            with patch("thunder_admin.checks.check_model") as mock_model:
+                with patch("thunder_admin.checks.check_service") as mock_service:
+                    with patch("thunder_admin.checks.check_port") as mock_port:
+                        results = run_all_checks(_full_config())
+
+    slot = results[("msm1", 8000)]
+    assert slot["ssh"] == ("error", "SSH timeout")
+    assert slot["model"] == ("skip", "")
+    assert slot["service"] == ("skip", "")
+    assert slot["port"] == ("skip", "")
+    mock_model.assert_not_called()
+    mock_service.assert_not_called()
+    mock_port.assert_not_called()
+
+
+def test_run_all_checks_service_not_ok_skips_port():
+    from thunder_admin.checks import run_all_checks
+
+    mock_ssh_conn = MagicMock()
+    with patch("thunder_admin.checks.check_config", return_value=("ok", "")):
+        with patch("thunder_admin.checks.check_ssh", return_value=(("ok", ""), mock_ssh_conn)):
+            with patch("thunder_admin.checks.check_model", return_value=("ok", "")):
+                with patch("thunder_admin.checks.check_service", return_value=("error", "not running")):
+                    with patch("thunder_admin.checks.check_port") as mock_port:
+                        results = run_all_checks(_full_config())
+
+    slot = results[("msm1", 8000)]
+    assert slot["service"] == ("error", "not running")
+    assert slot["port"] == ("skip", "")
+    mock_port.assert_not_called()
+
+
+def test_run_all_checks_config_error_does_not_block_ssh():
+    from thunder_admin.checks import run_all_checks
+
+    mock_ssh_conn = MagicMock()
+    with patch("thunder_admin.checks.check_config", return_value=("error", "RAM too low")):
+        with patch("thunder_admin.checks.check_ssh", return_value=(("ok", ""), mock_ssh_conn)) as mock_ssh:
+            with patch("thunder_admin.checks.check_model", return_value=("ok", "")):
+                with patch("thunder_admin.checks.check_service", return_value=("ok", "")):
+                    with patch("thunder_admin.checks.check_port", return_value=("ok", "")):
+                        results = run_all_checks(_full_config())
+
+    slot = results[("msm1", 8000)]
+    assert slot["config"] == ("error", "RAM too low")
+    assert slot["ssh"] == ("ok", "")
+    mock_ssh.assert_called_once()
+
+
+def test_run_all_checks_no_user_returns_error():
+    from thunder_admin.checks import run_all_checks
+
+    config = _full_config()
+    config["nodes"]["msm1"]["user"] = ""
+
+    with patch.dict("os.environ", {}, clear=True):
+        with patch("thunder_admin.checks.check_config", return_value=("ok", "")):
+            results = run_all_checks(config)
+
+    slot = results[("msm1", 8000)]
+    assert slot["ssh"][0] == "error"
+    assert "user not configured" in slot["ssh"][1]
+    assert slot["model"] == ("skip", "")
+    assert slot["service"] == ("skip", "")
+    assert slot["port"] == ("skip", "")
+
+
+def test_run_all_checks_user_fallback_to_env():
+    from thunder_admin.checks import run_all_checks
+
+    config = _full_config()
+    config["nodes"]["msm1"]["user"] = ""
+
+    mock_ssh_conn = MagicMock()
+    with patch.dict("os.environ", {"TF_SSH_USER": "fallback_user"}):
+        with patch("thunder_admin.checks.check_config", return_value=("ok", "")):
+            with patch("thunder_admin.checks.check_ssh", return_value=(("ok", ""), mock_ssh_conn)) as mock_ssh:
+                with patch("thunder_admin.checks.check_model", return_value=("ok", "")):
+                    with patch("thunder_admin.checks.check_service", return_value=("ok", "")):
+                        with patch("thunder_admin.checks.check_port", return_value=("ok", "")):
+                            results = run_all_checks(config)
+
+    called_node = mock_ssh.call_args[0][0]
+    assert called_node.user == "fallback_user"
+    assert results[("msm1", 8000)]["ssh"] == ("ok", "")
+
+
+def test_run_all_checks_empty_assignments_returns_empty():
+    from thunder_admin.checks import run_all_checks
+
+    config = _full_config()
+    config["assignments"] = {}
+    results = run_all_checks(config)
+    assert results == {}
