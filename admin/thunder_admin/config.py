@@ -122,7 +122,11 @@ def validate_config(config_json: dict) -> list[str]:
             else:
                 ports_seen[port] = model_name
 
-    for model_name, model in models.items():
+    assigned_model_names = {slot.get("model", "") for slots in assignments.values() for slot in slots}
+    for model_name in assigned_model_names:
+        model = models.get(model_name)
+        if model is None:
+            continue  # already caught above
         disk_gb = model.get("ram_gb") or model.get("disk_gb", 0)
         if disk_gb and nodes:
             from thunder_forge.cluster.config import OS_OVERHEAD_GB
