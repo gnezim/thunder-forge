@@ -93,6 +93,14 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
             errors.append(f"Download failed for {task.repo}: {(result.stderr or '').strip()}")
             return errors
     hf_cache_path = task.repo.replace("/", "--")
+    # Ensure refs/main exists so mlx_lm.server can locate the model in offline mode.
+    # hf download with a commit hash creates the snapshot dir but not refs/main.
+    if task.revision and task.revision != "main":
+        refs_cmd = (
+            f"mkdir -p {HF_CACHE}/models--{hf_cache_path}/refs && "
+            f"echo -n {task.revision} > {HF_CACHE}/models--{hf_cache_path}/refs/main"
+        )
+        ssh_run(gw.user, gw.ip, refs_cmd, shell=gw.shell)
     for node_name in task.target_nodes:
         node = config.nodes[node_name]
         if _check_hf_cached(node.user, node.ip, task.repo, shell=node.shell):
