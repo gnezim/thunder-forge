@@ -9,7 +9,7 @@ import time as time_mod
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from thunder_forge.cluster.config import Assignment, ClusterConfig, Model, Node
+from thunder_forge.cluster.config import Assignment, ClusterConfig, Model, Node, ServerArgs
 from thunder_forge.cluster.ssh import scp_content, ssh_run
 
 LOCK_FILE = "/tmp/thunder-forge-deploy.lock"
@@ -110,6 +110,25 @@ def generate_plist(
         import json
 
         program_args.extend(["--chat-template-args", json.dumps({"enable_thinking": model.enable_thinking})])
+
+    if model.server_args:
+        sa = model.server_args
+        for flag, value in [
+            ("--decode-concurrency", sa.decode_concurrency),
+            ("--prompt-concurrency", sa.prompt_concurrency),
+            ("--prefill-step-size", sa.prefill_step_size),
+            ("--prompt-cache-size", sa.prompt_cache_size),
+            ("--prompt-cache-bytes", sa.prompt_cache_bytes),
+            ("--max-tokens", sa.max_tokens),
+            ("--temp", sa.temp),
+            ("--top-p", sa.top_p),
+            ("--top-k", sa.top_k),
+            ("--min-p", sa.min_p),
+            ("--draft-model", sa.draft_model),
+            ("--num-draft-tokens", sa.num_draft_tokens),
+        ]:
+            if value is not None:
+                program_args.extend([flag, str(value)])
 
     if model.extra_args:
         program_args.extend(model.extra_args)

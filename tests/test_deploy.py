@@ -6,7 +6,7 @@ from textwrap import dedent
 
 import pytest
 
-from thunder_forge.cluster.config import Assignment, Model, ModelSource, Node, load_cluster_config
+from thunder_forge.cluster.config import Assignment, Model, ModelSource, Node, ServerArgs, load_cluster_config
 from thunder_forge.cluster.deploy import generate_plist
 
 
@@ -160,6 +160,114 @@ def test_generate_plist_enable_thinking_none(config_path: Path) -> None:
     node.homebrew_prefix = "/opt/homebrew"
     xml_str = generate_plist(model, slot, node)
     assert "--chat-template-args" not in xml_str
+
+
+def _resolved_node() -> Node:
+    return Node(
+        ip="192.168.1.101",
+        ram_gb=128,
+        user="admin",
+        role="node",
+        home_dir="/Users/admin",
+        homebrew_prefix="/opt/homebrew",
+    )
+
+
+def test_generate_plist_server_args_all_fields() -> None:
+    """All ServerArgs fields are emitted as CLI flags in ProgramArguments."""
+    node = _resolved_node()
+    model = Model(
+        source=ModelSource(type="huggingface", repo="test/model"),
+        disk_gb=10,
+        server_args=ServerArgs(
+            decode_concurrency=48,
+            prompt_concurrency=16,
+            prefill_step_size=1024,
+            prompt_cache_size=100,
+            prompt_cache_bytes=1073741824,
+            max_tokens=8192,
+            temp=0.7,
+            top_p=0.9,
+            top_k=50,
+            min_p=0.1,
+            draft_model="mlx-community/Qwen3-0.6B-4bit",
+            num_draft_tokens=5,
+        ),
+    )
+    slot = Assignment(model="test", port=8000)
+    xml_str = generate_plist(model, slot, node)
+    assert "--decode-concurrency" in xml_str
+    assert ">48<" in xml_str
+    assert "--prompt-concurrency" in xml_str
+    assert ">16<" in xml_str
+    assert "--prefill-step-size" in xml_str
+    assert ">1024<" in xml_str
+    assert "--prompt-cache-size" in xml_str
+    assert ">100<" in xml_str
+    assert "--prompt-cache-bytes" in xml_str
+    assert ">1073741824<" in xml_str
+    assert "--max-tokens" in xml_str
+    assert ">8192<" in xml_str
+    assert "--temp" in xml_str
+    assert ">0.7<" in xml_str
+    assert "--top-p" in xml_str
+    assert ">0.9<" in xml_str
+    assert "--top-k" in xml_str
+    assert ">50<" in xml_str
+    assert "--min-p" in xml_str
+    assert ">0.1<" in xml_str
+    assert "--draft-model" in xml_str
+    assert "mlx-community/Qwen3-0.6B-4bit" in xml_str
+    assert "--num-draft-tokens" in xml_str
+    assert ">5<" in xml_str
+
+
+def test_generate_plist_server_args_none() -> None:
+    """server_args=None emits no extra flags."""
+    node = _resolved_node()
+    model = Model(
+        source=ModelSource(type="huggingface", repo="test/model"),
+        disk_gb=10,
+        server_args=None,
+    )
+    slot = Assignment(model="test", port=8000)
+    xml_str = generate_plist(model, slot, node)
+    assert "--decode-concurrency" not in xml_str
+    assert "--prompt-concurrency" not in xml_str
+    assert "--max-tokens" not in xml_str
+
+
+def test_generate_plist_server_args_partial() -> None:
+    """Only non-None ServerArgs fields are emitted."""
+    node = _resolved_node()
+    model = Model(
+        source=ModelSource(type="huggingface", repo="test/model"),
+        disk_gb=10,
+        server_args=ServerArgs(decode_concurrency=64),
+    )
+    slot = Assignment(model="test", port=8000)
+    xml_str = generate_plist(model, slot, node)
+    assert "--decode-concurrency" in xml_str
+    assert ">64<" in xml_str
+    assert "--prompt-concurrency" not in xml_str
+    assert "--max-tokens" not in xml_str
+
+
+def test_generate_plist_server_args_before_extra_args() -> None:
+    """server_args flags appear before extra_args in ProgramArguments."""
+    node = _resolved_node()
+    model = Model(
+        source=ModelSource(type="huggingface", repo="test/model"),
+        disk_gb=10,
+        server_args=ServerArgs(decode_concurrency=48),
+        extra_args=["--trust-remote-code"],
+    )
+    slot = Assignment(model="test", port=8000)
+    xml_str = generate_plist(model, slot, node)
+    assert "--decode-concurrency" in xml_str
+    assert "--trust-remote-code" in xml_str
+    # decode-concurrency must appear before trust-remote-code
+    assert xml_str.index("--decode-concurrency") < xml_str.index("--trust-remote-code")
 
 
 def test_generate_plist_log_paths() -> None:
