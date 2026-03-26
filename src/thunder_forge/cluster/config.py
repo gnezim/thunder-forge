@@ -23,6 +23,22 @@ class ModelSource:
 
 
 @dataclass
+class ServerArgs:
+    decode_concurrency: int | None = None    # --decode-concurrency (mlx default: 32)
+    prompt_concurrency: int | None = None    # --prompt-concurrency (mlx default: 8)
+    prefill_step_size: int | None = None     # --prefill-step-size (mlx default: 2048)
+    prompt_cache_size: int | None = None     # --prompt-cache-size
+    prompt_cache_bytes: int | None = None    # --prompt-cache-bytes
+    max_tokens: int | None = None            # --max-tokens (mlx default: 512)
+    temp: float | None = None               # --temp (mlx default: 0.0)
+    top_p: float | None = None              # --top-p (mlx default: 1.0)
+    top_k: int | None = None               # --top-k (mlx default: 0)
+    min_p: float | None = None             # --min-p (mlx default: 0.0)
+    draft_model: str | None = None          # --draft-model
+    num_draft_tokens: int | None = None     # --num-draft-tokens (mlx default: 3)
+
+
+@dataclass
 class Model:
     source: ModelSource
     disk_gb: float = 0.0
@@ -34,6 +50,7 @@ class Model:
     notes: str = ""
     extra_args: list[str] | None = None
     enable_thinking: bool | None = None
+    server_args: ServerArgs | None = None
 
 
 @dataclass
@@ -115,7 +132,25 @@ def _parse_model_source(raw: dict) -> ModelSource:
     )
 
 
+def _parse_server_args(raw: dict) -> ServerArgs:
+    return ServerArgs(
+        decode_concurrency=raw.get("decode_concurrency"),
+        prompt_concurrency=raw.get("prompt_concurrency"),
+        prefill_step_size=raw.get("prefill_step_size"),
+        prompt_cache_size=raw.get("prompt_cache_size"),
+        prompt_cache_bytes=raw.get("prompt_cache_bytes"),
+        max_tokens=raw.get("max_tokens"),
+        temp=raw.get("temp"),
+        top_p=raw.get("top_p"),
+        top_k=raw.get("top_k"),
+        min_p=raw.get("min_p"),
+        draft_model=raw.get("draft_model"),
+        num_draft_tokens=raw.get("num_draft_tokens"),
+    )
+
+
 def _parse_model(raw: dict) -> Model:
+    server_args_raw = raw.get("server_args")
     return Model(
         source=_parse_model_source(raw["source"]),
         disk_gb=raw.get("disk_gb", 0.0),
@@ -127,6 +162,7 @@ def _parse_model(raw: dict) -> Model:
         notes=raw.get("notes", ""),
         extra_args=raw.get("extra_args"),
         enable_thinking=raw.get("enable_thinking"),
+        server_args=_parse_server_args(server_args_raw) if server_args_raw is not None else None,
     )
 
 

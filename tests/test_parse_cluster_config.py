@@ -2,7 +2,7 @@
 
 import pytest
 
-from thunder_forge.cluster.config import parse_cluster_config
+from thunder_forge.cluster.config import ServerArgs, parse_cluster_config
 
 
 def test_parse_cluster_config_basic():
@@ -72,3 +72,72 @@ def test_parse_cluster_config_external_endpoints():
     assert len(config.external_endpoints) == 1
     assert config.external_endpoints[0].model_name == "qwen3-30b"
     assert config.external_endpoints[0].api_key_env == "MY_KEY"
+
+
+def test_parse_model_server_args_populated():
+    """server_args dict in YAML becomes a ServerArgs dataclass."""
+    raw = {
+        "models": {
+            "coder": {
+                "source": {"type": "huggingface", "repo": "test/model"},
+                "disk_gb": 10,
+                "server_args": {
+                    "decode_concurrency": 48,
+                    "prompt_concurrency": 16,
+                    "max_tokens": 8192,
+                    "temp": 0.5,
+                    "draft_model": "mlx-community/Qwen3-0.6B-4bit",
+                    "num_draft_tokens": 5,
+                },
+            }
+        },
+        "nodes": {},
+        "assignments": {},
+    }
+    config = parse_cluster_config(raw)
+    sa = config.models["coder"].server_args
+    assert sa is not None
+    assert sa.decode_concurrency == 48
+    assert sa.prompt_concurrency == 16
+    assert sa.max_tokens == 8192
+    assert sa.temp == 0.5
+    assert sa.draft_model == "mlx-community/Qwen3-0.6B-4bit"
+    assert sa.num_draft_tokens == 5
+
+
+def test_parse_model_server_args_absent():
+    """No server_args key in YAML → model.server_args is None."""
+    raw = {
+        "models": {
+            "coder": {
+                "source": {"type": "huggingface", "repo": "test/model"},
+                "disk_gb": 10,
+            }
+        },
+        "nodes": {},
+        "assignments": {},
+    }
+    config = parse_cluster_config(raw)
+    assert config.models["coder"].server_args is None
+
+
+def test_parse_model_server_args_partial():
+    """Partial server_args dict — unset fields are None."""
+    raw = {
+        "models": {
+            "coder": {
+                "source": {"type": "huggingface", "repo": "test/model"},
+                "disk_gb": 10,
+                "server_args": {"decode_concurrency": 64},
+            }
+        },
+        "nodes": {},
+        "assignments": {},
+    }
+    config = parse_cluster_config(raw)
+    sa = config.models["coder"].server_args
+    assert sa is not None
+    assert sa.decode_concurrency == 64
+    assert sa.prompt_concurrency is None
+    assert sa.temp is None
+    assert sa.draft_model is None
