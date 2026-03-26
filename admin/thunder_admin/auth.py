@@ -41,6 +41,7 @@ def login(st, username: str, password: str) -> bool:
             "id": user["id"],
             "username": user["username"],
             "is_admin": user["is_admin"],
+            "timezone": user.get("timezone"),
         }
         st.session_state["login_time"] = datetime.now(UTC)
         return True

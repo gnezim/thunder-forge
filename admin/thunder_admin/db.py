@@ -180,7 +180,7 @@ def get_user_by_id(user_id: int) -> dict | None:
 
 def list_users() -> list[dict]:
     with get_cursor() as cur:
-        cur.execute("SELECT id, username, is_admin, created_at FROM users ORDER BY id")
+        cur.execute("SELECT id, username, is_admin, timezone, created_at FROM users ORDER BY id")
         return cur.fetchall()
 
 
@@ -199,6 +199,11 @@ def update_user_password(user_id: int, password_hash: str) -> None:
             "UPDATE users SET password_hash = %s WHERE id = %s",
             (password_hash, user_id),
         )
+
+
+def update_user_timezone(user_id: int, timezone: str | None) -> None:
+    with get_cursor() as cur:
+        cur.execute("UPDATE users SET timezone = %s WHERE id = %s", (timezone or None, user_id))
 
 
 def delete_user(user_id: int) -> None:

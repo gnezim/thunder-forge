@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS deploys (
     started_at    TIMESTAMPTZ DEFAULT now(),
     finished_at   TIMESTAMPTZ
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT;
 """
 
 
