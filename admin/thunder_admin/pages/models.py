@@ -346,6 +346,119 @@ def render(user: dict):
             serving = st.selectbox("Serving", ["", "embedding", "cli", "mlx-openai-server"])
             thinking_label = st.selectbox("Thinking mode", ["Default", "Enabled", "Disabled"])
             notes = st.text_area("Notes")
+
+            with st.expander("Server Tuning (Advanced)", expanded=False):
+                st.caption("Leave blank to use mlx_lm.server defaults.")
+                c1, c2, c3 = st.columns(3)
+                add_decode_concurrency = c1.number_input(
+                    "Decode concurrency",
+                    value=0,
+                    min_value=0,
+                    step=1,
+                    help="mlx default: 32. 0 = use default.",
+                    key="add_sa_decode",
+                )
+                add_prompt_concurrency = c2.number_input(
+                    "Prompt concurrency",
+                    value=0,
+                    min_value=0,
+                    step=1,
+                    help="mlx default: 8. 0 = use default.",
+                    key="add_sa_prompt",
+                )
+                add_prefill_step = c3.number_input(
+                    "Prefill step size",
+                    value=0,
+                    min_value=0,
+                    step=256,
+                    help="mlx default: 2048. 0 = use default.",
+                    key="add_sa_prefill",
+                )
+                c4, c5 = st.columns(2)
+                add_cache_size = c4.number_input(
+                    "Prompt cache size",
+                    value=0,
+                    min_value=0,
+                    step=1,
+                    help="KV cache entry count. 0 = use default.",
+                    key="add_sa_cache_size",
+                )
+                add_cache_bytes = c5.number_input(
+                    "Prompt cache bytes",
+                    value=0,
+                    min_value=0,
+                    step=1073741824,
+                    help="KV cache size in bytes. 0 = use default.",
+                    key="add_sa_cache_bytes",
+                )
+                st.markdown("**Sampling defaults**")
+                c6, c7, c8, c9, c10 = st.columns(5)
+                add_max_tokens = c6.number_input(
+                    "Max tokens",
+                    value=0,
+                    min_value=0,
+                    step=256,
+                    help="mlx default: 512. 0 = use default.",
+                    key="add_sa_max_tokens",
+                )
+                add_temp = c7.number_input(
+                    "Temp",
+                    value=0.0,
+                    min_value=0.0,
+                    max_value=2.0,
+                    step=0.05,
+                    help="mlx default: 0.0",
+                    key="add_sa_temp",
+                )
+                add_top_p = c8.number_input(
+                    "Top-p",
+                    value=0.0,
+                    min_value=0.0,
+                    max_value=1.0,
+                    step=0.05,
+                    help="mlx default: 1.0. 0 = use default.",
+                    key="add_sa_top_p",
+                )
+                add_top_k = c9.number_input(
+                    "Top-k",
+                    value=0,
+                    min_value=0,
+                    step=1,
+                    help="mlx default: 0 (disabled)",
+                    key="add_sa_top_k",
+                )
+                add_min_p = c10.number_input(
+                    "Min-p",
+                    value=0.0,
+                    min_value=0.0,
+                    max_value=1.0,
+                    step=0.01,
+                    help="mlx default: 0.0 (disabled)",
+                    key="add_sa_min_p",
+                )
+                st.markdown("**Speculative decoding**")
+                c11, c12 = st.columns(2)
+                add_draft_model = c11.text_input(
+                    "Draft model",
+                    value="",
+                    help="HF repo or local path for speculative decoding draft model.",
+                    key="add_sa_draft_model",
+                )
+                add_num_draft_tokens = c12.number_input(
+                    "Num draft tokens",
+                    value=0,
+                    min_value=0,
+                    step=1,
+                    help="mlx default: 3. 0 = use default.",
+                    key="add_sa_num_draft",
+                )
+                add_extra_args_text = st.text_area(
+                    "Extra args (one flag per line)",
+                    value="",
+                    help="Arbitrary mlx_lm.server flags. Appended after all named args above.",
+                    key="add_sa_extra",
+                )
+
             col_add, col_cancel = st.columns(2)
 
             if col_add.form_submit_button("Add Model"):
@@ -355,6 +468,36 @@ def render(user: dict):
                     st.error(f"Model '{pending_name}' already exists")
                 else:
                     new_thinking = {"Default": None, "Enabled": True, "Disabled": False}[thinking_label]
+
+                    # Build server_args dict
+                    new_sa = {}
+                    if add_decode_concurrency > 0:
+                        new_sa["decode_concurrency"] = add_decode_concurrency
+                    if add_prompt_concurrency > 0:
+                        new_sa["prompt_concurrency"] = add_prompt_concurrency
+                    if add_prefill_step > 0:
+                        new_sa["prefill_step_size"] = add_prefill_step
+                    if add_cache_size > 0:
+                        new_sa["prompt_cache_size"] = add_cache_size
+                    if add_cache_bytes > 0:
+                        new_sa["prompt_cache_bytes"] = add_cache_bytes
+                    if add_max_tokens > 0:
+                        new_sa["max_tokens"] = add_max_tokens
+                    if add_temp > 0.0:
+                        new_sa["temp"] = add_temp
+                    if add_top_p > 0.0:
+                        new_sa["top_p"] = add_top_p
+                    if add_top_k > 0:
+                        new_sa["top_k"] = add_top_k
+                    if add_min_p > 0.0:
+                        new_sa["min_p"] = add_min_p
+                    if add_draft_model.strip():
+                        new_sa["draft_model"] = add_draft_model.strip()
+                    if add_num_draft_tokens > 0:
+                        new_sa["num_draft_tokens"] = add_num_draft_tokens
+
+                    parsed_extra = [line for line in add_extra_args_text.splitlines() if line.strip()]
+
                     new_model = {
                         "source": {
                             "type": "huggingface",
@@ -364,10 +507,13 @@ def render(user: dict):
                         "disk_gb": disk_gb,
                         "kv_per_32k_gb": kv_per_32k_gb,
                         "max_context": max_context,
-                        "extra_args": None,
                         "serving": serving,
                         "notes": notes,
                     }
+                    if new_sa:
+                        new_model["server_args"] = new_sa
+                    if parsed_extra:
+                        new_model["extra_args"] = parsed_extra
                     if new_thinking is not None:
                         new_model["enable_thinking"] = new_thinking
                     if ram_gb > 0:
