@@ -93,10 +93,9 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
             errors.append(f"Download failed for {task.repo}: {(result.stderr or '').strip()}")
             return errors
     hf_cache_path = task.repo.replace("/", "--")
-    if _is_local(gw.ip):
-        src_path = f"{HF_CACHE}/models--{hf_cache_path}/"
-    else:
-        src_path = f"{gw.user}@{gw.ip}:{HF_CACHE}/models--{hf_cache_path}/"
+    # Always use SSH form for rsync: tilde in HF_CACHE expands correctly on the remote,
+    # but not in a subprocess call where the gateway may be "local" (e.g. host-network container).
+    src_path = f"{gw.user}@{gw.ip}:{HF_CACHE}/models--{hf_cache_path}/"
     for node_name in task.target_nodes:
         node = config.nodes[node_name]
         if _check_hf_cached(node.user, node.ip, task.repo, shell=node.shell):
