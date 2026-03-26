@@ -5,6 +5,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa: F401
 from typing import Literal
 
+import httpx
 import paramiko
 
 from thunder_admin.config import validate_config
@@ -119,5 +120,19 @@ def check_service(ssh_conn: paramiko.SSHClient, node: Node, slot: Assignment) ->
             if output == "active" and exit_code == 0:
                 return ("ok", "")
             return ("error", f"{svc} is {output or 'not active'}")
+    except Exception as e:
+        return ("error", str(e)[:120])
+
+
+def check_port(node: Node, slot: Assignment) -> CheckResult:
+    """HTTP GET /v1/models with 3s timeout."""
+    url = f"http://{node.ip}:{slot.port}/v1/models"
+    try:
+        response = httpx.get(url, timeout=3)
+        if response.status_code == 200:
+            return ("ok", "")
+        return ("error", f"HTTP {response.status_code}")
+    except httpx.TimeoutException:
+        return ("error", "timeout")
     except Exception as e:
         return ("error", str(e)[:120])

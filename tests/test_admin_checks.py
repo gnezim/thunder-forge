@@ -303,3 +303,72 @@ def test_check_service_linux_inactive():
     result = check_service(conn, node, slot)
     assert result[0] == "error"
     assert "thunder-forge-9000" in result[1]
+
+
+# --- check_port ---
+
+
+def test_check_port_ok():
+    from thunder_admin.checks import check_port
+
+    from thunder_forge.cluster.config import Assignment, Node
+
+    node = Node(ip="10.0.0.1", ram_gb=64, user="admin")
+    slot = Assignment(model="llama", port=8000)
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+
+    with patch("thunder_admin.checks.httpx.get", return_value=mock_response) as mock_get:
+        result = check_port(node, slot)
+
+    assert result == ("ok", "")
+    mock_get.assert_called_once_with("http://10.0.0.1:8000/v1/models", timeout=3)
+
+
+def test_check_port_non_200():
+    from thunder_admin.checks import check_port
+
+    from thunder_forge.cluster.config import Assignment, Node
+
+    node = Node(ip="10.0.0.1", ram_gb=64, user="admin")
+    slot = Assignment(model="llama", port=8000)
+    mock_response = MagicMock()
+    mock_response.status_code = 503
+
+    with patch("thunder_admin.checks.httpx.get", return_value=mock_response):
+        result = check_port(node, slot)
+
+    assert result[0] == "error"
+    assert "503" in result[1]
+
+
+def test_check_port_timeout():
+    import httpx
+    from thunder_admin.checks import check_port
+
+    from thunder_forge.cluster.config import Assignment, Node
+
+    node = Node(ip="10.0.0.1", ram_gb=64, user="admin")
+    slot = Assignment(model="llama", port=8000)
+
+    with patch("thunder_admin.checks.httpx.get", side_effect=httpx.TimeoutException("timed out")):
+        result = check_port(node, slot)
+
+    assert result == ("error", "timeout")
+
+
+def test_check_port_connection_error():
+    import httpx
+    from thunder_admin.checks import check_port
+
+    from thunder_forge.cluster.config import Assignment, Node
+
+    node = Node(ip="10.0.0.1", ram_gb=64, user="admin")
+    slot = Assignment(model="llama", port=8000)
+
+    with patch("thunder_admin.checks.httpx.get", side_effect=httpx.ConnectError("refused")):
+        result = check_port(node, slot)
+
+    assert result[0] == "error"
+    assert "refused" in result[1]
