@@ -38,9 +38,11 @@ def render(user: dict):
                 col2.write(f"**RAM override:** {model.get('ram_gb', 'auto')}")
                 col3.write(f"**Max context:** {model.get('max_context', 0):,}")
 
-                col4, col5 = st.columns(2)
+                col4, col5, col6 = st.columns(3)
                 col4.write(f"**KV/32k:** {model.get('kv_per_32k_gb', 0)} GB")
                 col5.write(f"**Serving:** {model.get('serving', '') or 'mlx_lm.server'}")
+                thinking_label = {True: "Enabled", False: "Disabled"}.get(model.get("enable_thinking"), "Default")
+                col6.write(f"**Thinking:** {thinking_label}")
 
                 if model.get("notes"):
                     st.caption(model["notes"])
@@ -86,6 +88,14 @@ def render(user: dict):
                             else 0,
                             key=f"edit_srv_{name}",
                         )
+                        _THINKING_OPTIONS = ["Default", "Enabled", "Disabled"]
+                        _THINKING_FROM_VAL = {None: 0, True: 1, False: 2}
+                        new_thinking_label = st.selectbox(
+                            "Thinking mode",
+                            _THINKING_OPTIONS,
+                            index=_THINKING_FROM_VAL.get(model.get("enable_thinking"), 0),
+                            key=f"edit_thinking_{name}",
+                        )
                         new_notes = st.text_area(
                             "Notes",
                             value=model.get("notes", ""),
@@ -98,6 +108,11 @@ def render(user: dict):
                             model["max_context"] = new_context
                             model["kv_per_32k_gb"] = new_kv
                             model["serving"] = new_serving
+                            new_thinking = {"Default": None, "Enabled": True, "Disabled": False}[new_thinking_label]
+                            if new_thinking is None:
+                                model.pop("enable_thinking", None)
+                            else:
+                                model["enable_thinking"] = new_thinking
                             model["notes"] = new_notes
                             if save_config_or_error(st, config, user, f"Updated model '{name}'"):
                                 del st.session_state[f"editing_model_{name}"]
@@ -178,6 +193,7 @@ def render(user: dict):
             kv_per_32k_gb = st.number_input("KV per 32k GB", value=meta["kv_per_32k_gb"], step=0.01)
             revision = st.text_input("Revision", value=meta["revision"])
             serving = st.selectbox("Serving", ["", "embedding", "cli", "mlx-openai-server"])
+            thinking_label = st.selectbox("Thinking mode", ["Default", "Enabled", "Disabled"])
             notes = st.text_area("Notes")
             col_add, col_cancel = st.columns(2)
 
@@ -187,6 +203,7 @@ def render(user: dict):
                 elif pending_name in models:
                     st.error(f"Model '{pending_name}' already exists")
                 else:
+                    new_thinking = {"Default": None, "Enabled": True, "Disabled": False}[thinking_label]
                     new_model = {
                         "source": {
                             "type": "huggingface",
@@ -200,6 +217,8 @@ def render(user: dict):
                         "serving": serving,
                         "notes": notes,
                     }
+                    if new_thinking is not None:
+                        new_model["enable_thinking"] = new_thinking
                     if ram_gb > 0:
                         new_model["ram_gb"] = ram_gb
                     config["models"][pending_name] = new_model
