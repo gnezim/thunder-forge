@@ -1,4 +1,5 @@
 """Timezone-aware datetime formatting for the admin UI."""
+
 from __future__ import annotations
 
 import os

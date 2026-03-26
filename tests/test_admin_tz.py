@@ -1,17 +1,16 @@
 """Tests for timezone utility functions."""
+
 from __future__ import annotations
 
-import os
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfoNotFoundError
 
 import pytest
-
 from thunder_admin.tz import format_dt, get_display_tz
 
 
 def test_converts_utc_to_named_timezone():
-    dt = datetime(2024, 7, 15, 12, 0, 0, tzinfo=timezone.utc)
+    dt = datetime(2024, 7, 15, 12, 0, 0, tzinfo=UTC)
     user = {"timezone": "Europe/Helsinki"}
     assert format_dt(dt, user) == "2024-07-15 15:00"  # EEST = UTC+3
 
@@ -41,6 +40,6 @@ def test_invalid_timezone_raises():
 
 
 def test_custom_format():
-    dt = datetime(2024, 7, 15, 14, 30, 0, tzinfo=timezone.utc)
+    dt = datetime(2024, 7, 15, 14, 30, 0, tzinfo=UTC)
     user = {"timezone": None}
     assert format_dt(dt, user, fmt="%H:%M") == "14:30"

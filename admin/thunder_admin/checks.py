@@ -1,4 +1,5 @@
 """Pre-deploy status checks for each assignment slot."""
+
 from __future__ import annotations
 
 import os
