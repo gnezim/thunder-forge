@@ -78,16 +78,20 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
         for node_name in task.target_nodes:
             print(f"    [rsync] to {node_name}")
         return errors
-    print(f"  Downloading {task.repo} on {gw_name}...")
-    env_parts = [f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"]
-    if os.environ.get("HF_TOKEN"):
-        env_parts.append(f"HF_TOKEN={os.environ['HF_TOKEN']}")
-    hf_env = " ".join(env_parts)
-    dl_cmd = f"{hf_env} hf download {task.repo} --revision {task.revision}"
-    result = ssh_run(gw.user, gw.ip, dl_cmd, timeout=3600, stream=True, shell=gw.shell)
-    if result.returncode != 0:
-        errors.append(f"Download failed for {task.repo}: {(result.stderr or '').strip()}")
-        return errors
+    gw_hf_cache = os.environ.get("HF_HOME", "~/.cache/huggingface") + "/hub"
+    if _check_hf_cached(gw.user, gw.ip, task.repo, hf_cache=gw_hf_cache, shell=gw.shell):
+        print(f"  {task.repo} already cached on {gw_name}")
+    else:
+        print(f"  Downloading {task.repo} on {gw_name}...")
+        env_parts = [f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"]
+        if os.environ.get("HF_TOKEN"):
+            env_parts.append(f"HF_TOKEN={os.environ['HF_TOKEN']}")
+        hf_env = " ".join(env_parts)
+        dl_cmd = f"{hf_env} hf download {task.repo} --revision {task.revision}"
+        result = ssh_run(gw.user, gw.ip, dl_cmd, timeout=3600, stream=True, shell=gw.shell)
+        if result.returncode != 0:
+            errors.append(f"Download failed for {task.repo}: {(result.stderr or '').strip()}")
+            return errors
     hf_cache_path = task.repo.replace("/", "--")
     if _is_local(gw.ip):
         src_path = f"{HF_CACHE}/models--{hf_cache_path}/"
