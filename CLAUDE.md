@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-Typer CLI for managing a self-hosted MLX inference cluster. Handles model deployment, service orchestration (vllm-mlx via launchd), health monitoring, and LiteLLM proxy config generation across the cluster from a single command-line tool.
+Typer CLI + Streamlit admin UI for managing a self-hosted MLX inference cluster. The CLI handles model deployment, service orchestration (mlx_lm.server via launchd), health monitoring, and LiteLLM proxy config generation. The admin UI (`admin/thunder_admin/`) provides a web interface for cluster configuration, deployment, and monitoring — backed by PostgreSQL and deployed as a Docker container on the gateway node.
 
-**Cluster context:** The target cluster is 4x Mac Studio M4 Max (128GB) + 1x Radxa ROCK 5 ITX+ (32GB, ARM64 Linux) with LiteLLM proxy, Open WebUI, and Grafana monitoring. Detailed docs (topology, node setup, infra stack, model registry, benchmarks, runbooks) live in the Obsidian vault at `/Users/gnezim/_projects/gnezim/knowledge/projects/personal/inference-cluster/`.
+**Cluster context:** Mixed macOS (Apple Silicon) + Linux inference clusters. Typical setup: multiple Mac compute nodes running vllm-mlx + one Linux gateway running LiteLLM proxy, Open WebUI, and Grafana via Docker Compose. Multiple clusters may exist with different hardware configurations. Detailed docs (topology, node setup, infra stack, model registry, benchmarks, runbooks) live in the Obsidian vault at `/Users/gnezim/_projects/gnezim/knowledge/projects/personal/inference-cluster/`.
 
 ## Commands
 
@@ -50,7 +50,7 @@ configs/
 └── litellm-config.yaml     # Generated LiteLLM proxy config
 
 docker/
-└── docker-compose.yml      # LiteLLM, Open WebUI, PostgreSQL on the Radxa ROCK hub
+└── docker-compose.yml      # LiteLLM, Open WebUI, PostgreSQL on the gateway node
 
 scripts/
 └── setup-node.sh           # Bootstrap script for new nodes (inference / infra roles)

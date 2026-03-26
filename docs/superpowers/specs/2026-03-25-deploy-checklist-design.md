@@ -31,9 +31,9 @@ Checks run in parallel via `ThreadPoolExecutor`, one thread per slot.
 
 | Step | Type | What it checks |
 |------|------|----------------|
-| **config** | static (no SSH) | RAM fits on node, port is unique per node, model and node exist in config — delegates to existing `validate_config()` and scopes errors to the slot |
+| **config** | static (no SSH) | RAM fits on node, port is unique per node, model and node exist in config — delegates to existing `validate_config()` and reports all errors (not scoped per slot — config errors are rare and a global list is sufficient) |
 | **ssh** | SSH to compute node | `echo ok` on `node.ip` using `node.user` — confirms connectivity |
-| **model** | SSH to compute node | For `huggingface` source type: `ls ~/.cache/huggingface/hub/models--{org}--{name}/` where path is derived by replacing `/` with `--` in `source.repo`. For any other source type (`local`, `pip`, `convert`, or future types): returns `("warn", "non-HF source; skipping model check")` |
+| **model** | SSH to compute node | For `huggingface` source type: `ls ~/.cache/huggingface/hub/models--{org}--{name}/` where path is derived by replacing `/` with `--` in `source.repo` (assumes default HF cache — nodes don't set custom `HF_HOME`). For any other source type (`local`, `pip`, `convert`, or future types): returns `("warn", "non-HF source; skipping model check")` |
 | **service** | SSH to compute node | macOS: `launchctl list com.mlx-lm-{port}` and grep for `"PID"` key in output — PID present means running, absent means stopped/crashed. Linux: `systemctl is-active thunder-forge-{port}` |
 | **port** | HTTP | `GET http://{node_ip}:{port}/v1/models` with 3s timeout |
 
@@ -62,19 +62,24 @@ SlotChecks = dict[str, CheckResult]  # keys: "config", "ssh", "model", "service"
 
 Five check functions, all returning `CheckResult`:
 
-- `check_config(node_name, slot, config) -> CheckResult` — static only, no I/O; delegates to `validate_config()` and filters errors relevant to this slot
-- `check_ssh(node) -> CheckResult` — paramiko `echo ok` to `node.ip` as `node.user`
-- `check_model(node, slot, config) -> CheckResult` — SSH ls on HF cache path; skip for non-HF sources
-- `check_service(node, slot) -> CheckResult` — SSH launchctl (grep PID) on macOS, systemctl on Linux
+- `check_config(config) -> CheckResult` — static only, no I/O; delegates to `validate_config()` and returns all errors joined with `"; "` (capped at 120 chars). Not scoped per slot — config errors are global and rare
+- `check_ssh(node) -> CheckResult` — paramiko `echo ok` to `node.ip` as `node.user`; on success, returns the open connection for reuse
+- `check_model(ssh_conn, node, slot, config) -> CheckResult` — SSH ls on HF cache path; skip for non-HF sources
+- `check_service(ssh_conn, node, slot) -> CheckResult` — SSH launchctl (grep PID) on macOS, systemctl on Linux
 - `check_port(node, slot) -> CheckResult` — HTTP GET /v1/models timeout 3s
 
-Each SSH check creates its own paramiko connection to `node.ip`/`node.user` — independent of the gateway `ssh_exec` helper (which is gateway-only). If `node["user"]` is empty in the raw config dict, fall back to the `TF_SSH_USER` environment variable; if still empty, return `("error", "node user not configured")` without attempting a connection.
+SSH connection reuse: `check_ssh` opens a paramiko connection to `node.ip`/`node.user` and returns it alongside the `CheckResult`. Subsequent SSH checks (`check_model`, `check_service`) reuse that connection instead of opening new ones. This avoids 3 separate handshakes per slot. All connections are independent of the gateway `ssh_exec` helper (which is gateway-only).
+
+Node user resolution: `run_all_checks` parses the raw config dict via `parse_cluster_config()` to get `Node` dataclass objects. If `node.user` is empty after parsing, fall back to `TF_SSH_USER` environment variable; if still empty, return `("error", "node user not configured")` without attempting a connection.
 
 Entry point:
 
 ```python
 def run_all_checks(config: dict) -> dict[tuple[str, int], SlotChecks]:
-    """Run all checks for all assignment slots in parallel. Returns (node_name, port) → SlotChecks."""
+    """Run all checks for all assignment slots in parallel. Returns (node_name, port) → SlotChecks.
+
+    Internally parses raw config dict via parse_cluster_config() to get Node/Assignment dataclasses.
+    """
     ...
 ```
 
@@ -98,3 +103,4 @@ def run_all_checks(config: dict) -> dict[tuple[str, int], SlotChecks]:
 - No auto-refresh / polling — checks are on-demand only
 - No blocking the Deploy button based on check results — user decides
 - No checks for external endpoints (they have their own validation)
+- No partial re-check — "Check Status" always re-runs all slots
