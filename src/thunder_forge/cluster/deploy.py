@@ -9,7 +9,7 @@ import time as time_mod
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from thunder_forge.cluster.config import Assignment, ClusterConfig, Model, Node, ServerArgs
+from thunder_forge.cluster.config import Assignment, ClusterConfig, Model, Node
 from thunder_forge.cluster.ssh import scp_content, ssh_run
 
 LOCK_FILE = "/tmp/thunder-forge-deploy.lock"
