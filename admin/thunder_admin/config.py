@@ -16,6 +16,7 @@ _MODEL_KEY_ORDER = [
     "kv_per_32k_gb",
     "active_params",
     "max_context",
+    "enable_thinking",
     "extra_args",
     "serving",
     "notes",

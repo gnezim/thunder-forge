@@ -106,6 +106,11 @@ def generate_plist(
         "0.0.0.0",
     ]
 
+    if model.enable_thinking is not None:
+        import json
+
+        program_args.extend(["--chat-template-args", json.dumps({"enable_thinking": model.enable_thinking})])
+
     if model.extra_args:
         program_args.extend(model.extra_args)
 

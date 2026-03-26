@@ -137,6 +137,31 @@ def test_generate_plist_with_extra_args(config_path: Path) -> None:
     assert "DEBUG" in xml_str
 
 
+def test_generate_plist_enable_thinking_false(config_path: Path) -> None:
+    config = load_cluster_config(config_path)
+    model = config.models["coder"]
+    model.enable_thinking = False
+    slot = config.assignments["msm1"][0]
+    node = config.nodes["msm1"]
+    node.home_dir = "/Users/admin"
+    node.homebrew_prefix = "/opt/homebrew"
+    xml_str = generate_plist(model, slot, node)
+    assert "--chat-template-args" in xml_str
+    assert '"enable_thinking": false' in xml_str
+
+
+def test_generate_plist_enable_thinking_none(config_path: Path) -> None:
+    """enable_thinking=None (unset) should not add --chat-template-args."""
+    config = load_cluster_config(config_path)
+    model = config.models["coder"]
+    slot = config.assignments["msm1"][0]
+    node = config.nodes["msm1"]
+    node.home_dir = "/Users/admin"
+    node.homebrew_prefix = "/opt/homebrew"
+    xml_str = generate_plist(model, slot, node)
+    assert "--chat-template-args" not in xml_str
+
+
 def test_generate_plist_log_paths() -> None:
     """Logs go to ~/logs/mlx-lm-{port}.log, not /tmp/."""
     node = Node(

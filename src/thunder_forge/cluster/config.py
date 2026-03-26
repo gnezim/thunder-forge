@@ -33,6 +33,7 @@ class Model:
     serving: str = ""
     notes: str = ""
     extra_args: list[str] | None = None
+    enable_thinking: bool | None = None
 
 
 @dataclass
@@ -125,6 +126,7 @@ def _parse_model(raw: dict) -> Model:
         serving=raw.get("serving", ""),
         notes=raw.get("notes", ""),
         extra_args=raw.get("extra_args"),
+        enable_thinking=raw.get("enable_thinking"),
     )
 
 
