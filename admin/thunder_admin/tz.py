@@ -13,5 +13,5 @@ def get_display_tz(user: dict) -> ZoneInfo:
 
 
 def format_dt(dt: datetime, user: dict, fmt: str = "%Y-%m-%d %H:%M") -> str:
-    """Format a datetime in the logged-in user's display timezone."""
+    """Format a timezone-aware datetime in the logged-in user's display timezone."""
     return dt.astimezone(get_display_tz(user)).strftime(fmt)
