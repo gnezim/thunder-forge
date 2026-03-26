@@ -33,7 +33,9 @@ def _render_check_results(results: dict, config: dict) -> None:
     assignments = config.get("assignments", {})
     for node_name, slots in assignments.items():
         for slot_dict in slots:
-            port = slot_dict["port"]
+            port = slot_dict.get("port")
+            if port is None:
+                continue
             model = slot_dict.get("model", "?")
             key = (node_name, port)
             slot_checks = results.get(key)
