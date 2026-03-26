@@ -8,6 +8,7 @@ import importlib
 import streamlit as st
 
 from thunder_admin.auth import login, logout, require_auth
+from thunder_admin.tz import get_display_tz
 
 st.set_page_config(page_title="Thunder Forge Admin", page_icon="⚡", layout="wide")
 
@@ -47,11 +48,10 @@ def main():
     with st.sidebar:
         st.title("Thunder Forge")
         st.caption(f"Logged in as {user['username']}")
+        tz = get_display_tz(user)
+        st.caption(f"🕐 {tz.key}")
 
         page_names = list(PAGES.keys())
-        # Hide Users page for non-admins
-        if not user.get("is_admin"):
-            page_names = [p for p in page_names if p != "Users"]
 
         selection = st.radio("Navigation", page_names, label_visibility="collapsed")
 
