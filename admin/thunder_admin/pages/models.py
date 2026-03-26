@@ -256,7 +256,10 @@ def render(user: dict):
                                 new_sa["draft_model"] = new_draft_model.strip()
                             if new_num_draft_tokens > 0:
                                 new_sa["num_draft_tokens"] = new_num_draft_tokens
-                            model["server_args"] = new_sa if new_sa else None
+                            if new_sa:
+                                model["server_args"] = new_sa
+                            else:
+                                model.pop("server_args", None)
 
                             # Parse extra_args text area
                             parsed_extra = [line for line in new_extra_args_text.splitlines() if line.strip()]
