@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 import streamlit as st
 
 from thunder_admin import db
+from thunder_admin.checks import run_all_checks
 from thunder_admin.config import jsonb_to_yaml
 from thunder_admin.deploy import (
     check_gateway_lock_alive,
@@ -17,6 +18,39 @@ from thunder_admin.deploy import (
     read_gateway_lock,
     start_deploy,
 )
+
+_STATUS_ICONS = {
+    "ok": ":green[✓]",
+    "error": ":red[✗]",
+    "warn": ":orange[⚠]",
+    "skip": ":grey[–]",
+}
+_CHECK_LABELS = ["config", "ssh", "model", "service", "port"]
+
+
+def _render_check_results(results: dict, config: dict) -> None:
+    """Render one compact status row per assignment slot."""
+    assignments = config.get("assignments", {})
+    for node_name, slots in assignments.items():
+        for slot_dict in slots:
+            port = slot_dict["port"]
+            model = slot_dict.get("model", "?")
+            key = (node_name, port)
+            slot_checks = results.get(key)
+            if slot_checks is None:
+                continue
+
+            cols = st.columns([3, 1, 1, 1, 1, 1])
+            cols[0].markdown(f"**{node_name} / {model}:{port}**")
+            for i, check_name in enumerate(_CHECK_LABELS):
+                status, _ = slot_checks.get(check_name, ("skip", ""))
+                cols[i + 1].markdown(f"{_STATUS_ICONS.get(status, '?')} {check_name}")
+
+            # Error/warn detail lines
+            for check_name in _CHECK_LABELS:
+                status, detail = slot_checks.get(check_name, ("skip", ""))
+                if detail and status in ("error", "warn"):
+                    st.caption(f"{check_name}: {detail}")
 
 
 def render(user: dict):
@@ -52,6 +86,25 @@ def render(user: dict):
     else:
         st.caption("First deploy — full config:")
         st.code(current_yaml, language="yaml")
+
+    # Check Status section
+    assignments = current["config"].get("assignments", {})
+    if not assignments:
+        st.info("No assignments to check")
+    else:
+        # Invalidate cached checks when config version changes
+        if st.session_state.get("deploy_checks_config_id") != current["id"]:
+            st.session_state.pop("deploy_checks", None)
+            st.session_state.pop("deploy_checks_config_id", None)
+
+        if st.button("Check Status"):
+            with st.spinner("Running checks..."):
+                st.session_state["deploy_checks"] = run_all_checks(current["config"])
+                st.session_state["deploy_checks_config_id"] = current["id"]
+
+        check_results: dict = st.session_state.get("deploy_checks", {})
+        if check_results:
+            _render_check_results(check_results, current["config"])
 
     # Deploy button or running status
     running = db.get_running_deploy()
