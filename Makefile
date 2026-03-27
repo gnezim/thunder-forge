@@ -15,4 +15,10 @@ ps:
 logs:
 	$(COMPOSE) logs --tail=50 $(s)
 
-.PHONY: up down restart ps logs
+setup-gateway:
+	zsh scripts/setup-node.sh gateway
+
+setup-node:
+	zsh scripts/setup-node.sh node
+
+.PHONY: up down restart ps logs setup-gateway setup-node
