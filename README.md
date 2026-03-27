@@ -128,10 +128,6 @@ Inference nodes (macOS, Apple Silicon) run `mlx_lm.server` managed as launchd se
 
 Pushes to `main` that touch `configs/`, `src/thunder_forge/`, or `docker/` trigger the deploy workflow (`.github/workflows/deploy.yml`) on a self-hosted runner on the gateway node.
 
-## Design
-
-See the full design spec: [docs/specs/2026-03-14-thunder-forge-cluster-cli-design.md](docs/specs/2026-03-14-thunder-forge-cluster-cli-design.md)
-
 ## Status
 
 This repository is under active development (see [LICENSE](LICENSE)).
