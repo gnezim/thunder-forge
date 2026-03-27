@@ -162,7 +162,6 @@ Single config file for both the CLI and the Docker stack.
 | Variable | Required | Description |
 |---|---|---|
 | `HF_HOME` | Optional | HuggingFace cache directory on inference nodes |
-| `TF_DIR` | Optional | Path to thunder-forge repo (used by setup-node.sh) |
 | `TF_DISABLE_SLEEP` | Optional | Disable macOS sleep on nodes (`true`/`false`) |
 
 ---

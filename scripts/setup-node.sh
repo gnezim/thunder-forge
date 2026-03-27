@@ -52,8 +52,8 @@ for envfile in "$SCRIPT_DIR/../.env" "$SCRIPT_DIR/.env" "$HOME/.thunder-forge.en
 done
 
 # ── Configurable paths ────────────────────────────────
-TF_DIR="${TF_DIR:-$HOME/thunder-forge}"
-case "$TF_DIR" in "~"*) TF_DIR="$HOME${TF_DIR#\~}" ;; esac
+THUNDER_FORGE_DIR="${THUNDER_FORGE_DIR:-$HOME/thunder-forge}"
+case "$THUNDER_FORGE_DIR" in "~"*) THUNDER_FORGE_DIR="$HOME${THUNDER_FORGE_DIR#\~}" ;; esac
 TF_LOG_DIR="${TF_LOG_DIR:-$HOME/logs}"
 case "$TF_LOG_DIR" in "~"*) TF_LOG_DIR="$HOME${TF_LOG_DIR#\~}" ;; esac
 GATEWAY_SSH_KEY="${GATEWAY_SSH_KEY:-$HOME/.ssh/id_ed25519}"
@@ -196,10 +196,10 @@ verify_gateway() {
         errors=$((errors + 1))
     fi
 
-    if [ -f "$TF_DIR/pyproject.toml" ]; then
-        ok "thunder-forge cloned at $TF_DIR"
+    if [ -f "$THUNDER_FORGE_DIR/pyproject.toml" ]; then
+        ok "thunder-forge cloned at $THUNDER_FORGE_DIR"
     else
-        fail "thunder-forge not found at $TF_DIR"
+        fail "thunder-forge not found at $THUNDER_FORGE_DIR"
         errors=$((errors + 1))
     fi
 
@@ -232,20 +232,20 @@ verify_gateway() {
     fi
 
     # ── litellm config ─────────────────────────────────────
-    litellm_cfg="$TF_DIR/configs/litellm-config.yaml"
+    litellm_cfg="$THUNDER_FORGE_DIR/configs/litellm-config.yaml"
     if [ -f "$litellm_cfg" ]; then
         ok "litellm-config.yaml exists"
     elif [ -d "$litellm_cfg" ]; then
         fail "configs/litellm-config.yaml is a directory (Docker created it) — fix: rm -rf $litellm_cfg && touch $litellm_cfg"
         errors=$((errors + 1))
     else
-        fail "configs/litellm-config.yaml missing — run: cd $TF_DIR && uv run thunder-forge generate-config"
+        fail "configs/litellm-config.yaml missing — run: cd $THUNDER_FORGE_DIR && uv run thunder-forge generate-config"
         errors=$((errors + 1))
     fi
 
     # ── Docker Compose services ────────────────────────────
-    if [ -f "$TF_DIR/docker/docker-compose.yml" ]; then
-        cd "$TF_DIR"
+    if [ -f "$THUNDER_FORGE_DIR/docker/docker-compose.yml" ]; then
+        cd "$THUNDER_FORGE_DIR"
         echo ""
         echo "  Service health:"
         for svc in postgres litellm openwebui admin-ui; do
@@ -298,7 +298,7 @@ fi
 setup_node() {
     TOTAL_STEPS=6
     echo "=== Thunder Forge Node Setup ==="
-    echo "TF_DIR=$TF_DIR"
+    echo "THUNDER_FORGE_DIR=$THUNDER_FORGE_DIR"
     echo ""
     preflight
 
@@ -358,7 +358,7 @@ setup_node() {
 setup_gateway() {
     TOTAL_STEPS=8
     echo "=== Thunder Forge Gateway Setup ==="
-    echo "TF_DIR=$TF_DIR"
+    echo "THUNDER_FORGE_DIR=$THUNDER_FORGE_DIR"
     echo ""
     preflight
 
@@ -391,25 +391,25 @@ setup_gateway() {
     fi
 
     step "Cloning thunder-forge..."
-    if [ -d "$TF_DIR/.git" ]; then
+    if [ -d "$THUNDER_FORGE_DIR/.git" ]; then
         ok "Already cloned"
-        cd "$TF_DIR" && git pull
+        cd "$THUNDER_FORGE_DIR" && git pull
     else
-        git clone "$TF_REPO_URL" "$TF_DIR"
-        ok "Cloned to $TF_DIR"
+        git clone "$TF_REPO_URL" "$THUNDER_FORGE_DIR"
+        ok "Cloned to $THUNDER_FORGE_DIR"
     fi
 
     step "Installing Python dependencies..."
-    cd "$TF_DIR"
+    cd "$THUNDER_FORGE_DIR"
     uv sync
     uv tool upgrade --all 2>/dev/null || true
     ok "Dependencies installed"
 
     step "Generating secrets..."
-    if [ -f "$TF_DIR/.env" ]; then
+    if [ -f "$THUNDER_FORGE_DIR/.env" ]; then
         ok ".env already exists"
     else
-        cat > "$TF_DIR/.env" <<ENVEOF
+        cat > "$THUNDER_FORGE_DIR/.env" <<ENVEOF
 LITELLM_MASTER_KEY=sk-$(openssl rand -hex 16)
 POSTGRES_PASSWORD=$(openssl rand -hex 16)
 UI_USERNAME=admin
@@ -422,7 +422,7 @@ ENVEOF
     fi
 
     step "Starting Docker Compose..."
-    cd "$TF_DIR"
+    cd "$THUNDER_FORGE_DIR"
     docker compose -f docker/docker-compose.yml --env-file .env up -d
     echo "  Waiting for services..."
     attempt=0
