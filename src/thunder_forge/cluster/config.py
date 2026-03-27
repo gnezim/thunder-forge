@@ -23,6 +23,16 @@ class ModelSource:
 
 
 @dataclass
+class LiteLLMParams:
+    max_output_tokens: int | None = None  # 0/None = use default (16384 when max_context set)
+    timeout: int | None = None            # per-model timeout seconds; None = use global (120s)
+    stream_timeout: int | None = None     # per-model stream timeout; None = inherit global
+    weight: int | None = None            # load-balancing weight; None = default (1)
+    tpm: int | None = None               # tokens/minute limit; None = unlimited
+    rpm: int | None = None               # requests/minute limit; None = unlimited
+
+
+@dataclass
 class ServerArgs:
     decode_concurrency: int | None = None    # --decode-concurrency (mlx default: 32)
     prompt_concurrency: int | None = None    # --prompt-concurrency (mlx default: 8)
@@ -51,6 +61,7 @@ class Model:
     extra_args: list[str] | None = None
     enable_thinking: bool | None = None
     server_args: ServerArgs | None = None
+    litellm_params: LiteLLMParams | None = None
 
 
 @dataclass
@@ -132,6 +143,17 @@ def _parse_model_source(raw: dict) -> ModelSource:
     )
 
 
+def _parse_litellm_params(raw: dict) -> LiteLLMParams:
+    return LiteLLMParams(
+        max_output_tokens=raw.get("max_output_tokens"),
+        timeout=raw.get("timeout"),
+        stream_timeout=raw.get("stream_timeout"),
+        weight=raw.get("weight"),
+        tpm=raw.get("tpm"),
+        rpm=raw.get("rpm"),
+    )
+
+
 def _parse_server_args(raw: dict) -> ServerArgs:
     return ServerArgs(
         decode_concurrency=raw.get("decode_concurrency"),
@@ -151,6 +173,7 @@ def _parse_server_args(raw: dict) -> ServerArgs:
 
 def _parse_model(raw: dict) -> Model:
     server_args_raw = raw.get("server_args")
+    litellm_params_raw = raw.get("litellm_params")
     return Model(
         source=_parse_model_source(raw["source"]),
         disk_gb=raw.get("disk_gb", 0.0),
@@ -163,6 +186,7 @@ def _parse_model(raw: dict) -> Model:
         extra_args=raw.get("extra_args"),
         enable_thinking=raw.get("enable_thinking"),
         server_args=_parse_server_args(server_args_raw) if server_args_raw is not None else None,
+        litellm_params=_parse_litellm_params(litellm_params_raw) if litellm_params_raw is not None else None,
     )
 
 
@@ -296,9 +320,25 @@ def generate_litellm_config(config: ClusterConfig) -> str:
                     "api_key": "none",
                 },
             }
+            lp = model.litellm_params
             if model.max_context > 0:
                 entry["litellm_params"]["max_input_tokens"] = model.max_context
+            # max_output_tokens: use explicit value, or default to 16384 when max_context is set
+            if lp and lp.max_output_tokens:
+                entry["litellm_params"]["max_output_tokens"] = lp.max_output_tokens
+            elif model.max_context > 0:
                 entry["litellm_params"]["max_output_tokens"] = 16384
+            if lp:
+                if lp.timeout:
+                    entry["litellm_params"]["timeout"] = lp.timeout
+                if lp.stream_timeout:
+                    entry["litellm_params"]["stream_timeout"] = lp.stream_timeout
+                if lp.weight:
+                    entry["litellm_params"]["weight"] = lp.weight
+                if lp.tpm:
+                    entry["litellm_params"]["tpm"] = lp.tpm
+                if lp.rpm:
+                    entry["litellm_params"]["rpm"] = lp.rpm
             model_list.append(entry)
             if slot.embedding:
                 emb_model = config.models.get("embedding")

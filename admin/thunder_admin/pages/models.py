@@ -102,6 +102,60 @@ def render(user: dict):
                             key=f"edit_notes_{name}",
                         )
 
+                        with st.expander("LiteLLM Routing (Advanced)", expanded=False):
+                            lp = model.get("litellm_params") or {}
+                            st.caption("Controls how LiteLLM proxy routes requests to this model. 0 = use global default.")
+                            lp_c1, lp_c2, lp_c3 = st.columns(3)
+                            new_lp_max_output = lp_c1.number_input(
+                                "Max output tokens",
+                                value=int(lp.get("max_output_tokens") or 0),
+                                min_value=0,
+                                step=1024,
+                                help="Tokens LiteLLM allows in response. Default: 16384. 0 = use default.",
+                                key=f"edit_lp_max_out_{name}",
+                            )
+                            new_lp_timeout = lp_c2.number_input(
+                                "Timeout (s)",
+                                value=int(lp.get("timeout") or 0),
+                                min_value=0,
+                                step=10,
+                                help="Per-model request timeout in seconds. 0 = use global (120s).",
+                                key=f"edit_lp_timeout_{name}",
+                            )
+                            new_lp_stream_timeout = lp_c3.number_input(
+                                "Stream timeout (s)",
+                                value=int(lp.get("stream_timeout") or 0),
+                                min_value=0,
+                                step=10,
+                                help="Per-model streaming timeout in seconds. 0 = inherit global.",
+                                key=f"edit_lp_stream_timeout_{name}",
+                            )
+                            lp_c4, lp_c5, lp_c6 = st.columns(3)
+                            new_lp_weight = lp_c4.number_input(
+                                "Weight",
+                                value=int(lp.get("weight") or 0),
+                                min_value=0,
+                                step=1,
+                                help="Load-balancing weight across nodes serving this model. 0 = default (1).",
+                                key=f"edit_lp_weight_{name}",
+                            )
+                            new_lp_tpm = lp_c5.number_input(
+                                "TPM limit",
+                                value=int(lp.get("tpm") or 0),
+                                min_value=0,
+                                step=1000,
+                                help="Tokens per minute rate limit. 0 = unlimited.",
+                                key=f"edit_lp_tpm_{name}",
+                            )
+                            new_lp_rpm = lp_c6.number_input(
+                                "RPM limit",
+                                value=int(lp.get("rpm") or 0),
+                                min_value=0,
+                                step=10,
+                                help="Requests per minute rate limit. 0 = unlimited.",
+                                key=f"edit_lp_rpm_{name}",
+                            )
+
                         with st.expander("Server Tuning (Advanced)", expanded=False):
                             sa = model.get("server_args") or {}
                             st.caption("Leave blank to use mlx_lm.server defaults.")
@@ -230,6 +284,25 @@ def render(user: dict):
                                 model["enable_thinking"] = new_thinking
                             model["notes"] = new_notes
 
+                            # Build litellm_params dict — only non-zero values
+                            new_lp = {}
+                            if new_lp_max_output > 0:
+                                new_lp["max_output_tokens"] = new_lp_max_output
+                            if new_lp_timeout > 0:
+                                new_lp["timeout"] = new_lp_timeout
+                            if new_lp_stream_timeout > 0:
+                                new_lp["stream_timeout"] = new_lp_stream_timeout
+                            if new_lp_weight > 0:
+                                new_lp["weight"] = new_lp_weight
+                            if new_lp_tpm > 0:
+                                new_lp["tpm"] = new_lp_tpm
+                            if new_lp_rpm > 0:
+                                new_lp["rpm"] = new_lp_rpm
+                            if new_lp:
+                                model["litellm_params"] = new_lp
+                            else:
+                                model.pop("litellm_params", None)
+
                             # Build server_args dict — only non-zero/non-empty values
                             new_sa = {}
                             if new_decode_concurrency > 0:
@@ -346,6 +419,59 @@ def render(user: dict):
             serving = st.selectbox("Serving", ["", "embedding", "cli", "mlx-openai-server"])
             thinking_label = st.selectbox("Thinking mode", ["Default", "Enabled", "Disabled"])
             notes = st.text_area("Notes")
+
+            with st.expander("LiteLLM Routing (Advanced)", expanded=False):
+                st.caption("Controls how LiteLLM proxy routes requests to this model. 0 = use global default.")
+                lp_c1, lp_c2, lp_c3 = st.columns(3)
+                add_lp_max_output = lp_c1.number_input(
+                    "Max output tokens",
+                    value=0,
+                    min_value=0,
+                    step=1024,
+                    help="Tokens LiteLLM allows in response. Default: 16384. 0 = use default.",
+                    key="add_lp_max_out",
+                )
+                add_lp_timeout = lp_c2.number_input(
+                    "Timeout (s)",
+                    value=0,
+                    min_value=0,
+                    step=10,
+                    help="Per-model request timeout in seconds. 0 = use global (120s).",
+                    key="add_lp_timeout",
+                )
+                add_lp_stream_timeout = lp_c3.number_input(
+                    "Stream timeout (s)",
+                    value=0,
+                    min_value=0,
+                    step=10,
+                    help="Per-model streaming timeout in seconds. 0 = inherit global.",
+                    key="add_lp_stream_timeout",
+                )
+                lp_c4, lp_c5, lp_c6 = st.columns(3)
+                add_lp_weight = lp_c4.number_input(
+                    "Weight",
+                    value=0,
+                    min_value=0,
+                    step=1,
+                    help="Load-balancing weight across nodes serving this model. 0 = default (1).",
+                    key="add_lp_weight",
+                )
+                add_lp_tpm = lp_c5.number_input(
+                    "TPM limit",
+                    value=0,
+                    min_value=0,
+                    step=1000,
+                    help="Tokens per minute rate limit. 0 = unlimited.",
+                    key="add_lp_tpm",
+                )
+                add_lp_rpm = lp_c6.number_input(
+                    "RPM limit",
+                    value=0,
+                    min_value=0,
+                    step=10,
+                    help="Requests per minute rate limit. 0 = unlimited.",
+                    key="add_lp_rpm",
+                )
 
             with st.expander("Server Tuning (Advanced)", expanded=False):
                 st.caption("Leave blank to use mlx_lm.server defaults.")
@@ -469,6 +595,21 @@ def render(user: dict):
                 else:
                     new_thinking = {"Default": None, "Enabled": True, "Disabled": False}[thinking_label]
 
+                    # Build litellm_params dict
+                    new_lp = {}
+                    if add_lp_max_output > 0:
+                        new_lp["max_output_tokens"] = add_lp_max_output
+                    if add_lp_timeout > 0:
+                        new_lp["timeout"] = add_lp_timeout
+                    if add_lp_stream_timeout > 0:
+                        new_lp["stream_timeout"] = add_lp_stream_timeout
+                    if add_lp_weight > 0:
+                        new_lp["weight"] = add_lp_weight
+                    if add_lp_tpm > 0:
+                        new_lp["tpm"] = add_lp_tpm
+                    if add_lp_rpm > 0:
+                        new_lp["rpm"] = add_lp_rpm
+
                     # Build server_args dict
                     new_sa = {}
                     if add_decode_concurrency > 0:
@@ -510,6 +651,8 @@ def render(user: dict):
                         "serving": serving,
                         "notes": notes,
                     }
+                    if new_lp:
+                        new_model["litellm_params"] = new_lp
                     if new_sa:
                         new_model["server_args"] = new_sa
                     if parsed_extra:

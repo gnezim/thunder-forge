@@ -346,6 +346,77 @@ def test_check_config_sync_mismatch(assignments_yaml: Path, tmp_path: Path) -> N
     assert check_config_sync(config, committed) is False
 
 
+def test_generate_litellm_config_litellm_params_override(tmp_path: Path) -> None:
+    """litellm_params in model config overrides defaults and adds routing fields."""
+    content = dedent("""\
+        models:
+          coder:
+            source: { type: huggingface, repo: "test/coder" }
+            disk_gb: 44.8
+            max_context: 131072
+            litellm_params:
+              max_output_tokens: 32768
+              timeout: 300
+              stream_timeout: 600
+              weight: 2
+              tpm: 100000
+              rpm: 100
+
+        nodes:
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: node }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: gateway }
+
+        assignments:
+          msm1:
+            - model: coder
+              port: 8000
+    """)
+    p = tmp_path / "node-assignments.yaml"
+    p.write_text(content)
+    config = load_cluster_config(p)
+    result = generate_litellm_config(config)
+    parsed = yaml_lib.safe_load(result)
+    entry = parsed["model_list"][0]
+    assert entry["litellm_params"]["max_output_tokens"] == 32768
+    assert entry["litellm_params"]["max_input_tokens"] == 131072
+    assert entry["litellm_params"]["timeout"] == 300
+    assert entry["litellm_params"]["stream_timeout"] == 600
+    assert entry["litellm_params"]["weight"] == 2
+    assert entry["litellm_params"]["tpm"] == 100000
+    assert entry["litellm_params"]["rpm"] == 100
+
+
+def test_generate_litellm_config_litellm_params_partial(tmp_path: Path) -> None:
+    """Only set litellm_params fields appear in output; unset fields are absent."""
+    content = dedent("""\
+        models:
+          coder:
+            source: { type: huggingface, repo: "test/coder" }
+            disk_gb: 44.8
+            max_context: 131072
+            litellm_params:
+              max_output_tokens: 65536
+
+        nodes:
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: node }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: gateway }
+
+        assignments:
+          msm1:
+            - model: coder
+              port: 8000
+    """)
+    p = tmp_path / "node-assignments.yaml"
+    p.write_text(content)
+    config = load_cluster_config(p)
+    result = generate_litellm_config(config)
+    parsed = yaml_lib.safe_load(result)
+    entry = parsed["model_list"][0]
+    assert entry["litellm_params"]["max_output_tokens"] == 65536
+    assert "timeout" not in entry["litellm_params"]
+    assert "rpm" not in entry["litellm_params"]
+
+
 def test_load_cluster_config_loads_dotenv(assignments_yaml: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """load_cluster_config loads .env from repo root."""
     import thunder_forge.cluster.config as config_module
