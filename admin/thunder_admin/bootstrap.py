@@ -76,8 +76,27 @@ def run_migrations(database_url: str) -> None:
     print("Migrations complete.")
 
 
+def sync_admin_password(database_url: str, password: str) -> None:
+    """Create or update the admin user with the given password."""
+    import bcrypt
+
+    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    with psycopg.connect(database_url) as conn:
+        row = conn.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()
+        if row:
+            conn.execute("UPDATE users SET password_hash = %s WHERE username = 'admin'", (hashed,))
+            print("Admin password updated from ADMIN_PASSWORD.")
+        else:
+            conn.execute(
+                "INSERT INTO users (username, password_hash, is_admin) VALUES (%s, %s, TRUE)",
+                ("admin", hashed),
+            )
+            print("Admin user created from ADMIN_PASSWORD.")
+        conn.commit()
+
+
 def create_initial_admin(database_url: str) -> str | None:
-    """Create the initial admin user if no users exist. Returns password or None."""
+    """Create the initial admin user if no users exist. Returns generated password or None."""
     import bcrypt
 
     with psycopg.connect(database_url) as conn:
@@ -105,6 +124,11 @@ def bootstrap() -> None:
 
     ensure_database()
     run_migrations(database_url)
+
+    admin_password = os.environ.get("ADMIN_PASSWORD", "")
+    if admin_password:
+        sync_admin_password(database_url, admin_password)
+        return
 
     password = create_initial_admin(database_url)
     if password:
