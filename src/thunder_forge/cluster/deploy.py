@@ -339,7 +339,7 @@ def restart_litellm(config: ClusterConfig) -> bool:
     result = ssh_run(
         gw.user,
         gw.ip,
-        f"cd {docker_dir} && docker compose up -d litellm",
+        f"cd {docker_dir} && docker compose restart litellm",
         timeout=60,
         shell=gw.shell,
     )
