@@ -95,6 +95,24 @@ yaml.add_representer(
 )
 
 
+def _represent_float(dumper: yaml.Dumper, value: float) -> yaml.ScalarNode:
+    """Force decimal notation for small floats instead of scientific notation."""
+    if value != value:  # NaN
+        return dumper.represent_scalar("tag:yaml.org,2002:float", ".nan")
+    if value == float("inf"):
+        return dumper.represent_scalar("tag:yaml.org,2002:float", ".inf")
+    if value == float("-inf"):
+        return dumper.represent_scalar("tag:yaml.org,2002:float", "-.inf")
+    # Use enough decimal places to preserve precision, strip trailing zeros
+    text = f"{value:.10f}".rstrip("0")
+    if text.endswith("."):
+        text += "0"
+    return dumper.represent_scalar("tag:yaml.org,2002:float", text)
+
+
+yaml.add_representer(float, _represent_float)
+
+
 def jsonb_to_yaml(config_json: dict) -> str:
     """Convert a JSONB config dict to YAML with fixed key order."""
     ordered = _order_config(config_json)

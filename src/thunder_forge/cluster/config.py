@@ -11,6 +11,23 @@ import yaml
 from dotenv import load_dotenv
 
 
+def _represent_float(dumper: yaml.Dumper, value: float) -> yaml.ScalarNode:
+    """Force decimal notation for small floats instead of scientific notation."""
+    if value != value:  # NaN
+        return dumper.represent_scalar("tag:yaml.org,2002:float", ".nan")
+    if value == float("inf"):
+        return dumper.represent_scalar("tag:yaml.org,2002:float", ".inf")
+    if value == float("-inf"):
+        return dumper.represent_scalar("tag:yaml.org,2002:float", "-.inf")
+    text = f"{value:.10f}".rstrip("0")
+    if text.endswith("."):
+        text += "0"
+    return dumper.represent_scalar("tag:yaml.org,2002:float", text)
+
+
+yaml.add_representer(float, _represent_float)
+
+
 @dataclass
 class ModelSource:
     type: str  # huggingface, convert, local, pip
