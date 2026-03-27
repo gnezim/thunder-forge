@@ -186,10 +186,12 @@ verify_gateway() {
 
     if command -v hf >/dev/null 2>&1; then
         ok "hf CLI installed"
-        if hf auth whoami >/dev/null 2>&1; then
-            ok "HuggingFace authenticated"
+        if [ -n "${HF_TOKEN:-}" ]; then
+            ok "HuggingFace token set (HF_TOKEN)"
+        elif timeout 5 hf auth whoami >/dev/null 2>&1; then
+            ok "HuggingFace authenticated (hf auth login)"
         else
-            warn "HuggingFace not authenticated — run: hf auth login"
+            warn "HuggingFace not authenticated — set HF_TOKEN in .env or run: hf auth login"
         fi
     else
         fail "hf CLI not found"
@@ -252,6 +254,8 @@ verify_gateway() {
             state=$(docker compose -f docker/docker-compose.yml --env-file .env ps --format '{{.Name}} {{.Health}}' 2>/dev/null | grep "^$svc " | awk '{print $2}')
             if [ "$state" = "healthy" ]; then
                 ok "  $svc: healthy"
+            elif [ "$state" = "starting" ]; then
+                warn "  $svc: still starting — wait 30s and rerun make check"
             elif [ -z "$state" ]; then
                 fail "  $svc: not running"
                 errors=$((errors + 1))
