@@ -19,6 +19,8 @@ def _rsync_ssh_cmd() -> str:
 HF_CACHE = os.environ.get("HF_HOME", "~/.cache/huggingface") + "/hub"
 # Default HF cache on inference nodes (no custom HF_HOME)
 DEFAULT_HF_CACHE = "~/.cache/huggingface/hub"
+# Full path to hf CLI — needed when running via SSH (no login shell, ~/.local/bin not in PATH)
+HF_BIN = "~/.local/bin/hf"
 
 
 @dataclass
@@ -87,7 +89,7 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
         if os.environ.get("HF_TOKEN"):
             env_parts.append(f"HF_TOKEN={os.environ['HF_TOKEN']}")
         hf_env = " ".join(env_parts)
-        dl_cmd = f"{hf_env} hf download {task.repo} --revision {task.revision}"
+        dl_cmd = f"{hf_env} {HF_BIN} download {task.repo} --revision {task.revision}"
         result = ssh_run(gw.user, gw.ip, dl_cmd, timeout=3600, stream=True, shell=gw.shell)
         if result.returncode != 0:
             errors.append(f"Download failed for {task.repo}: {(result.stderr or '').strip()}")
@@ -135,7 +137,7 @@ def ensure_convert(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fa
     if os.environ.get("HF_TOKEN"):
         env_parts.append(f"HF_TOKEN={os.environ['HF_TOKEN']}")
     hf_env = " ".join(env_parts)
-    dl_result = ssh_run(gw.user, gw.ip, f"{hf_env} hf download {task.repo}", timeout=3600, stream=True, shell=gw.shell)
+    dl_result = ssh_run(gw.user, gw.ip, f"{hf_env} {HF_BIN} download {task.repo}", timeout=3600, stream=True, shell=gw.shell)
     if dl_result.returncode != 0:
         errors.append(f"Download failed for {task.repo}: {(dl_result.stderr or '').strip()}")
         return errors
@@ -200,7 +202,7 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
             if os.environ.get("HF_TOKEN"):
                 env_parts.append(f"HF_TOKEN={os.environ['HF_TOKEN']}")
             hf_env = " ".join(env_parts)
-            dl_cmd = f"{hf_env} hf download {task.weight_repo}"
+            dl_cmd = f"{hf_env} {HF_BIN} download {task.weight_repo}"
             dl_result = ssh_run(gw.user, gw.ip, dl_cmd, timeout=3600, stream=True, shell=gw.shell)
             if dl_result.returncode != 0:
                 errors.append(f"Weight download failed for {task.weight_repo}: {(dl_result.stderr or '').strip()}")
