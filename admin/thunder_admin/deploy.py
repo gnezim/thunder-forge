@@ -130,6 +130,7 @@ def run_deploy_ssh(deploy_id: int, config_yaml: str) -> None:
 
         command = (
             f"cd {tf_dir} && "
+            f"set -a && [ -f .env ] && . ./.env && set +a && "
             f"~/.local/bin/uv run thunder-forge generate-config && "
             f"~/.local/bin/uv run thunder-forge ensure-models && "
             f"~/.local/bin/uv run thunder-forge deploy"
