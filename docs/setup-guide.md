@@ -150,8 +150,8 @@ Only needed when running `thunder-forge` CLI commands directly. If you use the A
 
 | Variable | Required | Description |
 |---|---|---|
-| `TF_SSH_USER` | Yes | Default SSH user for compute nodes |
-| `TF_SSH_KEY` | Yes | Path to SSH key for node access |
+| `GATEWAY_SSH_USER` | Yes | Default SSH user for compute nodes |
+| `GATEWAY_SSH_KEY` | Yes | Path to SSH key for node access |
 | `HF_HOME` | Optional | HuggingFace cache directory |
 | `HF_TOKEN` | Optional | Private model access |
 | `TF_DIR` | Optional | Path to thunder-forge repo |

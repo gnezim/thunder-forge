@@ -154,7 +154,7 @@ def run_all_checks(config: dict) -> dict[tuple[str, int], SlotChecks]:
 
     def check_slot(node_name: str, slot: Assignment) -> tuple[tuple[str, int], SlotChecks]:
         node = cluster.nodes[node_name]
-        user = node.user or os.environ.get("TF_SSH_USER", "")
+        user = node.user or os.environ.get("GATEWAY_SSH_USER", "")
         if not user:
             return (node_name, slot.port), {
                 "config": config_result,

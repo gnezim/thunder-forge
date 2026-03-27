@@ -241,8 +241,8 @@ def load_cluster_config(path: Path) -> ClusterConfig:
     # Resolve users from env vars (parse_cluster_config stores as-is)
     for node in config.nodes.values():
         if not node.user:
-            if os.environ.get("TF_SSH_USER"):
-                node.user = os.environ["TF_SSH_USER"]
+            if os.environ.get("GATEWAY_SSH_USER"):
+                node.user = os.environ["GATEWAY_SSH_USER"]
             else:
                 node.user = os.environ.get("USER", "unknown")
 

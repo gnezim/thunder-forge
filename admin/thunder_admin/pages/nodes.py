@@ -38,7 +38,7 @@ def render(user: dict):
                 col1.write(f"**IP:** {node.get('ip', '')}")
                 col2.write(f"**RAM:** {node.get('ram_gb', 0)} GB")
                 col3.write(f"**Role:** {node.get('role', 'node')}")
-                user_display = node.get("user", "") or "(TF_SSH_USER)"
+                user_display = node.get("user", "") or "(GATEWAY_SSH_USER)"
                 col4.write(f"**User:** {user_display}")
 
                 edit_col, del_col = st.columns(2)
@@ -116,7 +116,7 @@ def render(user: dict):
         ip = st.text_input("IP address")
         ram_gb = st.number_input("RAM (GB)", min_value=1, value=128, step=1)
         role = st.selectbox("Role", ["node", "gateway"])
-        node_user = st.text_input("SSH user (optional — falls back to TF_SSH_USER on gateway)")
+        node_user = st.text_input("SSH user (optional — falls back to GATEWAY_SSH_USER)")
 
         if st.form_submit_button("Add Node"):
             if not name:

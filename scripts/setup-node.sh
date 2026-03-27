@@ -56,8 +56,8 @@ TF_DIR="${TF_DIR:-$HOME/thunder-forge}"
 case "$TF_DIR" in "~"*) TF_DIR="$HOME${TF_DIR#\~}" ;; esac
 TF_LOG_DIR="${TF_LOG_DIR:-$HOME/logs}"
 case "$TF_LOG_DIR" in "~"*) TF_LOG_DIR="$HOME${TF_LOG_DIR#\~}" ;; esac
-TF_SSH_KEY="${TF_SSH_KEY:-$HOME/.ssh/id_ed25519}"
-case "$TF_SSH_KEY" in "~"*) TF_SSH_KEY="$HOME${TF_SSH_KEY#\~}" ;; esac
+GATEWAY_SSH_KEY="${GATEWAY_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+case "$GATEWAY_SSH_KEY" in "~"*) GATEWAY_SSH_KEY="$HOME${GATEWAY_SSH_KEY#\~}" ;; esac
 TF_REPO_URL="${TF_REPO_URL:-https://github.com/shared-goals/thunder-forge.git}"
 
 # ── Helpers ───────────────────────────────────────────
@@ -381,19 +381,19 @@ ENVEOF
     done
 
     step "SSH key..."
-    if [ -f "$TF_SSH_KEY" ]; then
-        ok "Key exists: $TF_SSH_KEY"
+    if [ -f "$GATEWAY_SSH_KEY" ]; then
+        ok "Key exists: $GATEWAY_SSH_KEY"
     else
-        mkdir -p "$(dirname "$TF_SSH_KEY")"
-        ssh-keygen -t ed25519 -f "$TF_SSH_KEY" -N ""
-        ok "Generated: $TF_SSH_KEY"
+        mkdir -p "$(dirname "$GATEWAY_SSH_KEY")"
+        ssh-keygen -t ed25519 -f "$GATEWAY_SSH_KEY" -N ""
+        ok "Generated: $GATEWAY_SSH_KEY"
     fi
 
     verify_gateway
 
     echo ""
     echo "Next steps:"
-    echo "  1. Copy SSH key to each node: ssh-copy-id -i $TF_SSH_KEY <user>@<node-ip>"
+    echo "  1. Copy SSH key to each node: ssh-copy-id -i $GATEWAY_SSH_KEY <user>@<node-ip>"
     echo "  2. Run: uv run thunder-forge deploy"
 }
 

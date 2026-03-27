@@ -58,12 +58,12 @@ def test_load_cluster_config(assignments_yaml: Path) -> None:
 
 
 def test_load_cluster_config_user_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Both node and gateway default to the current OS user when no YAML user or TF_SSH_USER is set."""
+    """Both node and gateway default to the current OS user when no YAML user or GATEWAY_SSH_USER is set."""
     import thunder_forge.cluster.config as config_module
 
     monkeypatch.setenv("USER", "testuser")
-    monkeypatch.delenv("TF_SSH_USER", raising=False)
-    # Point find_repo_root to tmp_path so no real .env is loaded (which could set TF_SSH_USER)
+    monkeypatch.delenv("GATEWAY_SSH_USER", raising=False)
+    # Point find_repo_root to tmp_path so no real .env is loaded (which could set GATEWAY_SSH_USER)
     monkeypatch.setattr(config_module, "find_repo_root", lambda: tmp_path)
 
     content = dedent("""\
@@ -120,7 +120,7 @@ def test_node_resolved_fields_default_to_none(assignments_yaml: Path) -> None:
 
 
 def test_load_cluster_config_user_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """TF_SSH_USER env var overrides default when no YAML user is set."""
+    """GATEWAY_SSH_USER env var overrides default when no YAML user is set."""
     content = dedent("""\
         models:
           coder:
@@ -135,7 +135,7 @@ def test_load_cluster_config_user_from_env(tmp_path: Path, monkeypatch: pytest.M
     """)
     p = tmp_path / "node-assignments.yaml"
     p.write_text(content)
-    monkeypatch.setenv("TF_SSH_USER", "deploy_bot")
+    monkeypatch.setenv("GATEWAY_SSH_USER", "deploy_bot")
     config = load_cluster_config(p)
     assert config.nodes["msm1"].user == "deploy_bot"
 

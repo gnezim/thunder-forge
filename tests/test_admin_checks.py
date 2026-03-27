@@ -488,7 +488,7 @@ def test_run_all_checks_user_fallback_to_env():
     config["nodes"]["msm1"]["user"] = ""
 
     mock_ssh_conn = MagicMock()
-    with patch.dict("os.environ", {"TF_SSH_USER": "fallback_user"}):
+    with patch.dict("os.environ", {"GATEWAY_SSH_USER": "fallback_user"}):
         with patch("thunder_admin.checks.check_config", return_value=("ok", "")):
             with patch("thunder_admin.checks.check_ssh", return_value=(("ok", ""), mock_ssh_conn)) as mock_ssh:
                 with patch("thunder_admin.checks.check_model", return_value=("ok", "")):

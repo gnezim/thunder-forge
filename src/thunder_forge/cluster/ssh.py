@@ -15,8 +15,8 @@ def _login_shell() -> str:
 
 
 def _ssh_key_args() -> list[str]:
-    """Return -i <key> args if TF_SSH_KEY is set, otherwise empty."""
-    key = os.environ.get("TF_SSH_KEY")
+    """Return -i <key> args if GATEWAY_SSH_KEY is set, otherwise empty."""
+    key = os.environ.get("GATEWAY_SSH_KEY")
     if key:
         key = os.path.expanduser(key)
         if os.path.isfile(key):
