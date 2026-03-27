@@ -9,6 +9,7 @@ Get your MLX inference cluster running. This guide ends when you reach the Admin
 - **Gateway**: Linux or macOS machine with Docker + Docker Compose installed
 - **Compute nodes**: one or more macOS Apple Silicon machines
 - All nodes on the same network with SSH access between them
+- **Shell**: zsh — used throughout this guide on both macOS and Linux
 
 Verify Docker is installed on the gateway:
 
@@ -26,9 +27,9 @@ cd ~/thunder-forge
 cp docker/.env.example docker/.env
 ```
 
-Open `docker/.env` and fill in the **6 required fields**. Generate a value for each secret:
+Open `docker/.env` and fill in the required fields. Generate a value for each secret:
 
-```bash
+```zsh
 openssl rand -hex 32
 ```
 
@@ -39,14 +40,17 @@ WEBUI_SECRET_KEY=<generated>             # Open WebUI session encryption
 ADMIN_DB_PASSWORD=<generated>            # Thunder Admin database password
 GATEWAY_SSH_USER=<your-username>         # SSH user on this gateway machine
 THUNDER_FORGE_DIR=~/thunder-forge        # Absolute path to this repo
+HF_TOKEN=<your-token>                    # HuggingFace token — required for gated/fast model downloads
 ```
+
+Get your HuggingFace token at https://huggingface.co/settings/tokens (read access is sufficient). Without it, model downloads may be rate-limited or blocked for gated models.
 
 All other values in `docker/.env` have safe defaults.
 
 ### Step 2: Generate SSH Key for Node Access
 
-```bash
-bash scripts/setup-node.sh gateway
+```zsh
+zsh scripts/setup-node.sh gateway
 ```
 
 This bootstraps the gateway node: installs missing dependencies (Docker, uv), starts the Docker stack, and generates the SSH keypair for compute node access. The public key is printed at the end — copy it for the next step.
