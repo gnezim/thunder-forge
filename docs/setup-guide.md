@@ -18,10 +18,10 @@ On the gateway node:
 ```bash
 git clone https://github.com/shared-goals/thunder-forge.git ~/thunder-forge
 cd ~/thunder-forge
-cp docker/.env.example docker/.env
+cp .env.example .env
 ```
 
-Open `docker/.env` and fill in the required fields. Generate a value for each secret:
+Open `.env` and fill in the required fields. Generate a value for each secret:
 
 ```zsh
 openssl rand -hex 32
@@ -39,7 +39,7 @@ HF_TOKEN=<your-token>                    # HuggingFace token — required for ga
 
 Get your HuggingFace token at https://huggingface.co/settings/tokens (read access is sufficient). Without it, model downloads may be rate-limited or blocked for gated models.
 
-All other values in `docker/.env` have safe defaults.
+All other values in `.env` have safe defaults.
 
 ### Step 2: Generate SSH Key for Node Access
 
@@ -75,10 +75,10 @@ ssh -i ~/.ssh/id_ed25519 <user>@<node-ip> echo ok
 
 On the gateway:
 
-```bash
-cd ~/thunder-forge/docker
-docker compose up -d
-docker compose ps   # all services should show "Up"
+```zsh
+cd ~/thunder-forge
+docker compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml ps   # all services should show "Up"
 ```
 
 Four services start: PostgreSQL, LiteLLM proxy, Open WebUI, Admin UI.
@@ -95,9 +95,9 @@ First run creates the admin account and prompts for credentials. The Admin UI gu
 
 ### Environment Variables
 
-#### `docker/.env` — Docker stack
+#### `.env` (repo root) — unified config
 
-The main config file. Most users only need this one.
+Single config file for both the CLI and the Docker stack.
 
 **Core secrets** — all required. Generate each with `openssl rand -hex 32`:
 
@@ -136,7 +136,7 @@ The main config file. Most users only need this one.
 | `WEBUI_PORT` | Optional | `8080` | Open WebUI port |
 | `ENABLE_SIGNUP` | Optional | `false` | Allow new user registration |
 
-**LiteLLM & monitoring:**
+**LiteLLM & infrastructure:**
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
@@ -144,17 +144,12 @@ The main config file. Most users only need this one.
 | `PG_PORT` | Optional | `5434` | PostgreSQL port (non-standard to avoid conflicts with a local Postgres instance) |
 | `GRAFANA_URL` | Optional | — | Grafana dashboard URL, shown as a link in the Admin UI |
 
-#### `.env` (repo root) — CLI only
-
-Only needed when running `thunder-forge` CLI commands directly. If you use the Admin UI exclusively, you can skip this file.
+**CLI only** (not used by Docker):
 
 | Variable | Required | Description |
 |---|---|---|
-| `GATEWAY_SSH_USER` | Yes | Default SSH user for compute nodes |
-| `GATEWAY_SSH_KEY` | Yes | Path to SSH key for node access |
-| `HF_HOME` | Optional | HuggingFace cache directory |
-| `HF_TOKEN` | Optional | Private model access |
-| `TF_DIR` | Optional | Path to thunder-forge repo |
+| `HF_HOME` | Optional | HuggingFace cache directory on inference nodes |
+| `TF_DIR` | Optional | Path to thunder-forge repo (used by setup-node.sh) |
 | `TF_DISABLE_SLEEP` | Optional | Disable macOS sleep on nodes (`true`/`false`) |
 
 ---
@@ -163,45 +158,45 @@ Only needed when running `thunder-forge` CLI commands directly. If you use the A
 
 #### Code update (no config changes)
 
-```bash
+```zsh
 git pull
-cd docker && docker compose up -d --build
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 Docker volumes (database, config history) are preserved. The Admin UI retains all config versions across updates.
 
 #### Env var changes
 
-Edit `docker/.env`, then restart:
+Edit `.env`, then restart:
 
-```bash
-cd docker && docker compose up -d
+```zsh
+docker compose -f docker/docker-compose.yml up -d
 ```
 
 Only containers whose environment changed will restart. Data is preserved.
 
 **Rotating secrets** (`LITELLM_MASTER_KEY`, `WEBUI_SECRET_KEY`, `ADMIN_DB_PASSWORD`):
 1. Generate a new value: `openssl rand -hex 32`
-2. Update `docker/.env`
-3. `docker compose up -d`
+2. Update `.env`
+3. `docker compose -f docker/docker-compose.yml up -d`
 4. Update any API clients that used the old `LITELLM_MASTER_KEY`
 
 **⚠️ Special case: `POSTGRES_PASSWORD`**
 
 The Postgres password is written into the database volume on first run. Changing `.env` alone after that will break the connection — the value in the database must be updated first:
 
-```bash
+```zsh
 # Update the password in the running database
-docker compose exec postgres psql -U litellm -c "ALTER USER litellm PASSWORD 'new-password';"
-docker compose exec postgres psql -U postgres -c "ALTER USER thunder_admin PASSWORD 'new-password';"
+docker compose -f docker/docker-compose.yml exec postgres psql -U litellm -c "ALTER USER litellm PASSWORD 'new-password';"
+docker compose -f docker/docker-compose.yml exec postgres psql -U postgres -c "ALTER USER thunder_admin PASSWORD 'new-password';"
 
 # Then update .env and restart
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d
 ```
 
 #### Database schema migrations
 
-Migrations run automatically on every container startup. A `git pull` + `docker compose up -d --build` is always sufficient — no manual migration commands needed.
+Migrations run automatically on every container startup. A `git pull` + `docker compose -f docker/docker-compose.yml up -d --build` is always sufficient — no manual migration commands needed.
 
 #### Model cache
 
@@ -209,7 +204,7 @@ Model weights live on compute nodes, not in Docker volumes. Adding new models is
 
 To free disk space after removing a model from the config:
 
-```bash
+```zsh
 ssh <user>@<node-ip> "rm -rf ~/.cache/huggingface/hub/<model-repo-name>"
 ```
 
@@ -219,31 +214,31 @@ ssh <user>@<node-ip> "rm -rf ~/.cache/huggingface/hub/<model-repo-name>"
 
 **Check stack health:**
 
-```bash
-cd ~/thunder-forge/docker
-docker compose ps                        # all services should show "Up"
-docker compose logs --tail=50 <service>  # logs for a specific service
+```zsh
+cd ~/thunder-forge
+docker compose -f docker/docker-compose.yml ps                        # all services should show "Up"
+docker compose -f docker/docker-compose.yml logs --tail=50 <service>  # logs for a specific service
 ```
 
 **Admin UI not reachable on port 8501:**
 - Admin UI runs in host network mode — check firewall rules on the gateway
-- Check logs: `docker compose logs --tail=50 admin-ui`
+- Check logs: `docker compose -f docker/docker-compose.yml logs --tail=50 admin-ui`
 
 **LiteLLM not responding on port 4000:**
-- PostgreSQL must be healthy first: `docker compose logs postgres`
-- LiteLLM depends on postgres — check `docker compose ps`
+- PostgreSQL must be healthy first: `docker compose -f docker/docker-compose.yml logs postgres`
+- LiteLLM depends on postgres — check `docker compose -f docker/docker-compose.yml ps`
 
 **All containers exit immediately after `docker compose up`:**
-Missing required `.env` values — check logs for the specific variable name: `docker compose logs`
+Missing required `.env` values — check logs for the specific variable name: `docker compose -f docker/docker-compose.yml logs`
 
 **Admin UI can't reach gateway via SSH:**
 
-```bash
+```zsh
 # Check the SSH key is accessible inside the container
-docker compose exec admin-ui ls -la $GATEWAY_SSH_KEY
+docker compose -f docker/docker-compose.yml exec admin-ui ls -la $GATEWAY_SSH_KEY
 
 # Test SSH from inside the container
-docker compose exec admin-ui ssh -i $GATEWAY_SSH_KEY $GATEWAY_SSH_USER@$GATEWAY_SSH_HOST echo ok
+docker compose -f docker/docker-compose.yml exec admin-ui ssh -i $GATEWAY_SSH_KEY $GATEWAY_SSH_USER@$GATEWAY_SSH_HOST echo ok
 ```
 
 Also verify `THUNDER_FORGE_DIR` exists on the gateway.
@@ -254,14 +249,14 @@ Also verify `THUNDER_FORGE_DIR` exists on the gateway.
 
 **mlx-lm service not starting on a compute node:**
 
-```bash
+```zsh
 ssh <user>@<node-ip> "tail -50 ~/logs/mlx-lm-<port>.err"
 ```
 
 **HuggingFace offline error / model not loading:**
 Model cache is incomplete. Trigger model sync from the Admin UI deploy page, or run directly:
 
-```bash
+```zsh
 cd ~/thunder-forge && uv run thunder-forge ensure-models
 ```
 
@@ -271,18 +266,19 @@ Containers fail to connect. Follow the rotation procedure under [Env var changes
 **LiteLLM `IsADirectoryError`:**
 `configs/litellm-config.yaml` doesn't exist — Docker created a directory instead. Fix:
 
-```bash
-cd ~/thunder-forge/docker && docker compose down
-rm -rf ~/thunder-forge/configs/litellm-config.yaml
+```zsh
+cd ~/thunder-forge
+docker compose -f docker/docker-compose.yml down
+rm -rf configs/litellm-config.yaml
 uv run thunder-forge generate-config
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d
 ```
 
 **Port conflict on Open WebUI (port 8080 already in use):**
 
-```bash
-echo 'WEBUI_PORT=8081' >> ~/thunder-forge/docker/.env
-cd ~/thunder-forge/docker && docker compose up -d
+```zsh
+echo 'WEBUI_PORT=8081' >> ~/thunder-forge/.env
+docker compose -f docker/docker-compose.yml up -d
 ```
 
 ---

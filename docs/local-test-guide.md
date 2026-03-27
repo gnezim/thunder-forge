@@ -56,7 +56,7 @@ On the gateway:
 git clone https://github.com/shared-goals/thunder-forge.git ~/thunder-forge
 cd ~/thunder-forge
 
-cat > docker/.env <<'EOF'
+cat > .env <<'EOF'
 LITELLM_MASTER_KEY=test-key-local
 POSTGRES_PASSWORD=localtest
 WEBUI_SECRET_KEY=localtest-webui
@@ -65,7 +65,7 @@ GATEWAY_SSH_USER=<your-username>
 THUNDER_FORGE_DIR=~/thunder-forge
 EOF
 
-bash scripts/setup-node.sh gateway
+zsh scripts/setup-node.sh gateway
 ```
 
 Expected output ends with:
@@ -126,7 +126,7 @@ ssh <mac-user>@<mac-ip> 'launchctl bootout gui/$(id -u)/com.mlx-lm-8000 2>/dev/n
 Stop Docker on the gateway:
 
 ```bash
-ssh <gateway-user>@<gateway-ip> "cd ~/thunder-forge/docker && docker compose down"
+ssh <gateway-user>@<gateway-ip> "cd ~/thunder-forge && docker compose -f docker/docker-compose.yml down"
 ```
 
 ## Troubleshooting
@@ -143,5 +143,5 @@ ssh <gateway-user>@<gateway-ip> "curl -s http://<mac-ip>:8000/v1/models"
 
 **Docker services unhealthy:**
 ```bash
-ssh <gateway-user>@<gateway-ip> "cd ~/thunder-forge/docker && docker compose logs --tail=30"
+ssh <gateway-user>@<gateway-ip> "cd ~/thunder-forge && docker compose -f docker/docker-compose.yml logs --tail=30"
 ```

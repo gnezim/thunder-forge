@@ -205,12 +205,12 @@ verify_gateway() {
 
     # Check Docker Compose services
     if [ -f "$TF_DIR/docker/docker-compose.yml" ] || [ -f "$TF_DIR/docker/compose.yaml" ]; then
-        cd "$TF_DIR/docker"
-        running=$(docker compose ps --format '{{.Name}} {{.State}}' 2>/dev/null || true)
+        cd "$TF_DIR"
+        running=$(docker compose -f docker/docker-compose.yml ps --format '{{.Name}} {{.State}}' 2>/dev/null || true)
         if echo "$running" | grep -q "running"; then
             ok "Docker Compose services running"
         else
-            fail "Docker Compose services not running — run: cd $TF_DIR/docker && docker compose up -d"
+            fail "Docker Compose services not running — run: cd $TF_DIR && docker compose -f docker/docker-compose.yml up -d"
             errors=$((errors + 1))
         fi
     fi
@@ -346,10 +346,10 @@ setup_gateway() {
     ok "Dependencies installed"
 
     step "Generating secrets..."
-    if [ -f "$TF_DIR/docker/.env" ]; then
-        ok "docker/.env already exists"
+    if [ -f "$TF_DIR/.env" ]; then
+        ok ".env already exists"
     else
-        cat > "$TF_DIR/docker/.env" <<ENVEOF
+        cat > "$TF_DIR/.env" <<ENVEOF
 LITELLM_MASTER_KEY=sk-$(openssl rand -hex 16)
 POSTGRES_PASSWORD=$(openssl rand -hex 16)
 UI_USERNAME=admin
@@ -358,12 +358,12 @@ WEBUI_SECRET_KEY=$(openssl rand -hex 16)
 WEBUI_AUTH=true
 ENABLE_SIGNUP=true
 ENVEOF
-        ok "Generated docker/.env — save these credentials!"
+        ok "Generated .env — save these credentials!"
     fi
 
     step "Starting Docker Compose..."
-    cd "$TF_DIR/docker"
-    docker compose up -d
+    cd "$TF_DIR"
+    docker compose -f docker/docker-compose.yml up -d
     echo "  Waiting for services..."
     attempt=0
     max_attempts=12
@@ -374,7 +374,7 @@ ENVEOF
             break
         fi
         if [ "$attempt" -eq "$max_attempts" ]; then
-            warn "LiteLLM not responding yet — check: docker compose logs litellm"
+            warn "LiteLLM not responding yet — check: docker compose -f docker/docker-compose.yml logs litellm"
         else
             sleep 5
         fi
