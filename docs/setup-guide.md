@@ -49,7 +49,7 @@ All other values in `docker/.env` have safe defaults.
 bash scripts/setup-node.sh gateway
 ```
 
-This generates the SSH keypair the Admin UI uses to reach compute nodes. The public key is printed at the end — copy it for the next step.
+This bootstraps the gateway node: installs missing dependencies (Docker, uv), starts the Docker stack, and generates the SSH keypair for compute node access. The public key is printed at the end — copy it for the next step.
 
 ### Step 3: Bootstrap Compute Nodes
 
@@ -70,7 +70,7 @@ echo "<public-key-from-step-2>" >> ~/.ssh/authorized_keys
 Verify connectivity from the gateway:
 
 ```bash
-ssh -i ~/.ssh/thunder_forge <user>@<node-ip> echo ok
+ssh -i ~/.ssh/id_ed25519 <user>@<node-ip> echo ok
 ```
 
 ### Step 4: Start the Docker Stack
@@ -115,7 +115,7 @@ The main config file. Most users only need this one.
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `GATEWAY_SSH_USER` | ✅ | — | SSH user on the gateway node |
-| `GATEWAY_SSH_KEY` | ✅ | `~/.ssh/thunder_forge` | Path to SSH private key on the host (mounted read-only into the container) |
+| `GATEWAY_SSH_KEY` | Optional | `~/.ssh/id_ed25519` | Path to SSH private key on the host (mounted read-only into the container) |
 | `GATEWAY_SSH_HOST` | Optional | `localhost` | Gateway hostname or IP. Defaults to localhost since the Admin UI runs on the gateway. |
 | `GATEWAY_SSH_PORT` | Optional | `22` | SSH port |
 
@@ -252,7 +252,7 @@ Also verify `THUNDER_FORGE_DIR` exists on the gateway.
 
 **Compute node unreachable:**
 - Verify the public key is in `~/.ssh/authorized_keys` on the node
-- Test from the gateway: `ssh -i ~/.ssh/thunder_forge <user>@<node-ip> echo ok`
+- Test from the gateway: `ssh -i ~/.ssh/id_ed25519 <user>@<node-ip> echo ok`
 
 **mlx-lm service not starting on a compute node:**
 
