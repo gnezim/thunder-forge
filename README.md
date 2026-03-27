@@ -120,7 +120,6 @@ The gateway node runs these services via Docker Compose (`docker/`):
 - **LiteLLM** -- OpenAI-compatible proxy routing requests to inference nodes
 - **Open WebUI** -- Chat interface
 - **PostgreSQL** -- Shared backend for LiteLLM and Thunder Admin
-- **Grafana** -- Metrics and monitoring
 - **Thunder Admin** -- The Streamlit admin UI
 
 Inference nodes (macOS, Apple Silicon) run `mlx_lm.server` managed as launchd services.
