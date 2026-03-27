@@ -33,7 +33,7 @@ POSTGRES_PASSWORD=<generated>            # PostgreSQL password
 WEBUI_SECRET_KEY=<generated>             # Open WebUI session encryption
 ADMIN_DB_PASSWORD=<generated>            # Thunder Admin database password
 GATEWAY_SSH_USER=<your-username>         # SSH user on this gateway machine
-THUNDER_FORGE_DIR=~/thunder-forge        # Absolute path to this repo
+THUNDER_FORGE_DIR=/home/<user>/thunder-forge  # Absolute path — no ~
 HF_TOKEN=<your-token>                    # HuggingFace token — required for gated/fast model downloads
 ```
 
