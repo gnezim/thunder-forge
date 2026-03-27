@@ -219,18 +219,17 @@ verify_gateway() {
     esac
 
     # ── authorized_keys ────────────────────────────────────
-    pubkey="${GATEWAY_SSH_KEY}.pub"
-    if [ -f "$pubkey" ]; then
-        pubkey_content="$(cat "$pubkey")"
+    pubkey_content="$(ssh-keygen -y -f "$GATEWAY_SSH_KEY" 2>/dev/null)"
+    if [ -n "$pubkey_content" ]; then
         if grep -qF "$pubkey_content" "$HOME/.ssh/authorized_keys" 2>/dev/null; then
             ok "Gateway public key in authorized_keys"
         else
             fail "Gateway public key not in ~/.ssh/authorized_keys — Admin UI can't SSH to localhost"
-            fail "  Fix: cat $pubkey >> ~/.ssh/authorized_keys"
+            fail "  Fix: ssh-keygen -y -f $GATEWAY_SSH_KEY >> ~/.ssh/authorized_keys"
             errors=$((errors + 1))
         fi
     else
-        warn "No public key at $pubkey — skipping authorized_keys check"
+        warn "Cannot read public key from $GATEWAY_SSH_KEY — skipping authorized_keys check"
     fi
 
     # ── litellm config ─────────────────────────────────────
@@ -454,11 +453,10 @@ ENVEOF
     fi
 
     # Add gateway public key to its own authorized_keys so Admin UI can SSH to localhost
-    pubkey="${GATEWAY_SSH_KEY}.pub"
-    if [ -f "$pubkey" ]; then
+    pubkey_content="$(ssh-keygen -y -f "$GATEWAY_SSH_KEY" 2>/dev/null)"
+    if [ -n "$pubkey_content" ]; then
         mkdir -p "$HOME/.ssh"
         chmod 700 "$HOME/.ssh"
-        pubkey_content="$(cat "$pubkey")"
         if grep -qF "$pubkey_content" "$HOME/.ssh/authorized_keys" 2>/dev/null; then
             ok "Public key already in authorized_keys"
         else
