@@ -76,86 +76,58 @@ Shared Goals activities can involve highly sensitive data.
 - Treat secrets and tokens as production-grade (no plaintext in repos).
 - Make agent activity auditable (logs, runs, and permissions).
 
-## Cluster CLI
+## Cluster Management
 
-Thunder Forge includes a Typer CLI for managing the MLX inference cluster: **4x Mac Studio M4 Max** (128 GB each) + **1x Radxa ROCK 5 ITX+** (ARM64 Linux, infrastructure hub).
+Thunder Forge manages an MLX inference cluster via two interfaces: a **web Admin UI** for day-to-day operation, and a **Typer CLI** for scripting and automation.
 
-### Quick Start
+For full setup instructions, see [docs/setup-guide.md](docs/setup-guide.md).
+
+### Admin UI
+
+A Streamlit web interface (`admin/thunder_admin/`) deployed as a Docker container on the gateway node. After initial setup, all cluster management flows through here:
+
+| Page                | What it does                                                        |
+| ------------------- | ------------------------------------------------------------------- |
+| **Dashboard**       | Live cluster health — node status, service reachability             |
+| **Nodes**           | Manage compute node inventory and hardware specs                    |
+| **Assignments**     | Assign models to nodes, configure memory budgets and server args    |
+| **Models**          | Model registry and HuggingFace cache management                     |
+| **Deploy**          | Trigger deployments; view launchd plist generation and SSH output   |
+| **External Endpoints** | Register external OpenAI-compatible endpoints in LiteLLM        |
+| **History**         | Deployment and event log                                            |
+| **Users**           | Admin user management with per-user timezone preferences            |
+
+### CLI
 
 ```bash
-# Install dependencies
-uv sync
-
-# See available commands
-uv run thunder-forge --help
-
-# Generate LiteLLM proxy config from cluster definition
-uv run thunder-forge generate-config
-
-# Check cluster health
-uv run thunder-forge health
+uv sync                                      # Install dependencies
+uv run thunder-forge --help                  # See all commands
 ```
-
-### Commands
 
 | Command            | Description                                                    |
 | ------------------ | -------------------------------------------------------------- |
-| `generate-config`  | Generate LiteLLM `proxy_config.yaml` from `configs/*.yml`      |
-| `ensure-models`    | Download/sync models to inference nodes via SSH                 |
-| `deploy`           | Deploy vllm-mlx services to inference nodes (launchd plist)    |
-| `health`           | Run health checks across all cluster nodes                     |
+| `generate-config`  | Generate LiteLLM `proxy_config.yaml` from cluster state        |
+| `ensure-models`    | Download/sync models to inference nodes via SSH                |
+| `deploy`           | Deploy mlx_lm.server services to inference nodes (launchd)     |
+| `health`           | Check SSH reachability and service status across all nodes      |
 
-Use `uv run thunder-forge <command> --help` for detailed usage of each command.
+Use `uv run thunder-forge <command> --help` for per-command details.
 
-#### generate-config
+### Infrastructure Stack
 
-Reads `configs/node-assignments.yaml` (node inventory and model registry), then writes a LiteLLM-compatible `configs/litellm-config.yaml`. Use `--check` to validate without writing.
+The gateway node runs these services via Docker Compose (`docker/`):
 
-#### ensure-models
-
-Connects to each inference node via SSH and ensures the required models are downloaded. Compares the desired model set from `configs/node-assignments.yaml` against what is already present on each node.
-
-#### deploy
-
-Generates macOS `launchd` plist files for vllm-mlx on each inference node, copies them over SSH, and starts the services. Handles graceful restart of running services.
-
-#### health
-
-Probes all cluster nodes for SSH reachability, vllm-mlx service status, and model availability. Reports a summary table to the terminal.
-
-### Node Bootstrap
-
-New nodes can be set up with the bootstrap script:
-
-```bash
-# On a Mac Studio (inference node)
-zsh scripts/setup-node.sh node
-
-# On the Radxa ROCK (gateway / infrastructure hub)
-zsh scripts/setup-node.sh gateway
-```
-
-The `node` role installs Homebrew, uv, and vllm-mlx, disables macOS sleep, and creates the logs directory. The `gateway` role installs Docker, uv, clones this repo, generates secrets for the Docker Compose stack, starts the services, and generates an SSH key for connecting to inference nodes.
-
-### Configuration
-
-All cluster configuration lives in `configs/`:
-
-- `configs/node-assignments.yaml` -- Node inventory and model assignments (hostnames, IPs, roles, hardware specs, which models on which nodes, memory budgets)
-
-The `generate-config` command produces `configs/litellm-config.yaml` from the assignments file.
-
-### Infrastructure Stack (Docker)
-
-The Radxa ROCK hub runs these services via Docker Compose (`docker/`):
-
-- **LiteLLM** -- OpenAI-compatible proxy that routes requests to inference nodes
+- **LiteLLM** -- OpenAI-compatible proxy routing requests to inference nodes
 - **Open WebUI** -- Chat interface
-- **PostgreSQL** -- LiteLLM backend
+- **PostgreSQL** -- Shared backend for LiteLLM and Thunder Admin
+- **Grafana** -- Metrics and monitoring
+- **Thunder Admin** -- The Streamlit admin UI
+
+Inference nodes (macOS, Apple Silicon) run `mlx_lm.server` managed as launchd services.
 
 ### CI/CD
 
-Pushes to `main` that touch `configs/`, `src/thunder_forge/`, or `docker/` trigger the deploy workflow (`.github/workflows/deploy.yml`) on a self-hosted runner on the Radxa ROCK.
+Pushes to `main` that touch `configs/`, `src/thunder_forge/`, or `docker/` trigger the deploy workflow (`.github/workflows/deploy.yml`) on a self-hosted runner on the gateway node.
 
 ## Design
 
