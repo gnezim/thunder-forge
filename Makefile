@@ -1,5 +1,16 @@
 COMPOSE = docker compose -f docker/docker-compose.yml --env-file .env
 
+help:
+	@echo "Usage: make <target>"
+	@echo ""
+	@echo "  up              Build and start all services"
+	@echo "  down            Stop all services"
+	@echo "  restart         Stop and restart all services"
+	@echo "  ps              Show service status"
+	@echo "  logs            Show logs (optional: s=<service>)"
+	@echo "  setup-gateway   Bootstrap this machine as gateway node"
+	@echo "  setup-node      Bootstrap this machine as compute node"
+
 up:
 	$(COMPOSE) up -d --build
 
@@ -21,4 +32,5 @@ setup-gateway:
 setup-node:
 	zsh scripts/setup-node.sh node
 
-.PHONY: up down restart ps logs setup-gateway setup-node
+.PHONY: help up down restart ps logs setup-gateway setup-node
+.DEFAULT_GOAL := help
