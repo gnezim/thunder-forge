@@ -30,6 +30,21 @@ class LiteLLMParams:
     weight: int | None = None            # load-balancing weight; None = default (1)
     tpm: int | None = None               # tokens/minute limit; None = unlimited
     rpm: int | None = None               # requests/minute limit; None = unlimited
+    temperature: float | None = None     # proxy-level default temperature; None = model default
+    max_tokens: int | None = None        # proxy-level default max_tokens; None = model default
+    seed: int | None = None              # reproducible outputs; None = non-deterministic
+
+
+@dataclass
+class ModelInfo:
+    base_model: str = ""                                # maps custom names to known models for token counting
+    mode: str = ""                                      # chat, completion, embedding, image_generation
+    input_cost_per_token: float | None = None           # cost tracking / budget enforcement
+    output_cost_per_token: float | None = None          # cost tracking / budget enforcement
+    supports_vision: bool | None = None                 # multimodal routing
+    supports_function_calling: bool | None = None       # tool use routing
+    supports_parallel_function_calling: bool | None = None  # parallel tool calls
+    supports_response_schema: bool | None = None        # structured output support
 
 
 @dataclass
@@ -62,6 +77,7 @@ class Model:
     enable_thinking: bool | None = None
     server_args: ServerArgs | None = None
     litellm_params: LiteLLMParams | None = None
+    model_info: ModelInfo | None = None
 
 
 @dataclass
@@ -151,6 +167,22 @@ def _parse_litellm_params(raw: dict) -> LiteLLMParams:
         weight=raw.get("weight"),
         tpm=raw.get("tpm"),
         rpm=raw.get("rpm"),
+        temperature=raw.get("temperature"),
+        max_tokens=raw.get("max_tokens"),
+        seed=raw.get("seed"),
+    )
+
+
+def _parse_model_info(raw: dict) -> ModelInfo:
+    return ModelInfo(
+        base_model=raw.get("base_model", ""),
+        mode=raw.get("mode", ""),
+        input_cost_per_token=raw.get("input_cost_per_token"),
+        output_cost_per_token=raw.get("output_cost_per_token"),
+        supports_vision=raw.get("supports_vision"),
+        supports_function_calling=raw.get("supports_function_calling"),
+        supports_parallel_function_calling=raw.get("supports_parallel_function_calling"),
+        supports_response_schema=raw.get("supports_response_schema"),
     )
 
 
@@ -174,6 +206,7 @@ def _parse_server_args(raw: dict) -> ServerArgs:
 def _parse_model(raw: dict) -> Model:
     server_args_raw = raw.get("server_args")
     litellm_params_raw = raw.get("litellm_params")
+    model_info_raw = raw.get("model_info")
     return Model(
         source=_parse_model_source(raw["source"]),
         disk_gb=raw.get("disk_gb", 0.0),
@@ -187,6 +220,7 @@ def _parse_model(raw: dict) -> Model:
         enable_thinking=raw.get("enable_thinking"),
         server_args=_parse_server_args(server_args_raw) if server_args_raw is not None else None,
         litellm_params=_parse_litellm_params(litellm_params_raw) if litellm_params_raw is not None else None,
+        model_info=_parse_model_info(model_info_raw) if model_info_raw is not None else None,
     )
 
 
@@ -339,6 +373,33 @@ def generate_litellm_config(config: ClusterConfig) -> str:
                     entry["litellm_params"]["tpm"] = lp.tpm
                 if lp.rpm:
                     entry["litellm_params"]["rpm"] = lp.rpm
+                if lp.temperature is not None:
+                    entry["litellm_params"]["temperature"] = lp.temperature
+                if lp.max_tokens:
+                    entry["litellm_params"]["max_tokens"] = lp.max_tokens
+                if lp.seed is not None:
+                    entry["litellm_params"]["seed"] = lp.seed
+            mi = model.model_info
+            if mi:
+                info: dict = {}
+                if mi.base_model:
+                    info["base_model"] = mi.base_model
+                if mi.mode:
+                    info["mode"] = mi.mode
+                if mi.input_cost_per_token is not None:
+                    info["input_cost_per_token"] = mi.input_cost_per_token
+                if mi.output_cost_per_token is not None:
+                    info["output_cost_per_token"] = mi.output_cost_per_token
+                if mi.supports_vision is not None:
+                    info["supports_vision"] = mi.supports_vision
+                if mi.supports_function_calling is not None:
+                    info["supports_function_calling"] = mi.supports_function_calling
+                if mi.supports_parallel_function_calling is not None:
+                    info["supports_parallel_function_calling"] = mi.supports_parallel_function_calling
+                if mi.supports_response_schema is not None:
+                    info["supports_response_schema"] = mi.supports_response_schema
+                if info:
+                    entry["model_info"] = info
             model_list.append(entry)
             if slot.embedding:
                 emb_model = config.models.get("embedding")

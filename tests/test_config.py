@@ -10,6 +10,7 @@ from thunder_forge.cluster.config import (
     check_config_sync,
     generate_litellm_config,
     load_cluster_config,
+    parse_cluster_config,
     validate_memory,
 )
 
@@ -436,3 +437,181 @@ def test_load_cluster_config_loads_dotenv(assignments_yaml: Path, monkeypatch: p
     import os
 
     assert os.environ.get("HF_HOME") == "/test/hf/cache"
+
+
+def test_parse_model_info() -> None:
+    """model_info is parsed into ModelInfo dataclass."""
+    raw = {
+        "models": {
+            "coder": {
+                "source": {"type": "huggingface", "repo": "test/coder"},
+                "disk_gb": 10,
+                "model_info": {
+                    "base_model": "meta-llama/Llama-3-70b",
+                    "mode": "chat",
+                    "input_cost_per_token": 0.000001,
+                    "output_cost_per_token": 0.000002,
+                    "supports_vision": True,
+                    "supports_function_calling": True,
+                    "supports_parallel_function_calling": False,
+                    "supports_response_schema": True,
+                },
+            }
+        },
+        "nodes": {},
+        "assignments": {},
+    }
+    config = parse_cluster_config(raw)
+    mi = config.models["coder"].model_info
+    assert mi is not None
+    assert mi.base_model == "meta-llama/Llama-3-70b"
+    assert mi.mode == "chat"
+    assert mi.input_cost_per_token == 0.000001
+    assert mi.output_cost_per_token == 0.000002
+    assert mi.supports_vision is True
+    assert mi.supports_function_calling is True
+    assert mi.supports_parallel_function_calling is False
+    assert mi.supports_response_schema is True
+
+
+def test_parse_model_info_absent() -> None:
+    """model_info is None when not provided."""
+    raw = {
+        "models": {
+            "coder": {
+                "source": {"type": "huggingface", "repo": "test/coder"},
+                "disk_gb": 10,
+            }
+        },
+        "nodes": {},
+        "assignments": {},
+    }
+    config = parse_cluster_config(raw)
+    assert config.models["coder"].model_info is None
+
+
+def test_parse_litellm_params_new_fields() -> None:
+    """New litellm_params fields (temperature, max_tokens, seed) are parsed."""
+    raw = {
+        "models": {
+            "coder": {
+                "source": {"type": "huggingface", "repo": "test/coder"},
+                "disk_gb": 10,
+                "litellm_params": {
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "seed": 42,
+                },
+            }
+        },
+        "nodes": {},
+        "assignments": {},
+    }
+    config = parse_cluster_config(raw)
+    lp = config.models["coder"].litellm_params
+    assert lp is not None
+    assert lp.temperature == 0.7
+    assert lp.max_tokens == 4096
+    assert lp.seed == 42
+
+
+def test_generate_litellm_config_model_info(tmp_path: Path) -> None:
+    """model_info section appears in generated config when set."""
+    content = dedent("""\
+        models:
+          coder:
+            source: { type: huggingface, repo: "test/coder" }
+            disk_gb: 44.8
+            max_context: 131072
+            model_info:
+              base_model: meta-llama/Llama-3-70b
+              mode: chat
+              input_cost_per_token: 0.000001
+              output_cost_per_token: 0.000002
+              supports_vision: true
+              supports_function_calling: true
+
+        nodes:
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: node }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: gateway }
+
+        assignments:
+          msm1:
+            - model: coder
+              port: 8000
+    """)
+    p = tmp_path / "node-assignments.yaml"
+    p.write_text(content)
+    config = load_cluster_config(p)
+    result = generate_litellm_config(config)
+    parsed = yaml_lib.safe_load(result)
+    entry = parsed["model_list"][0]
+    assert "model_info" in entry
+    assert entry["model_info"]["base_model"] == "meta-llama/Llama-3-70b"
+    assert entry["model_info"]["mode"] == "chat"
+    assert entry["model_info"]["input_cost_per_token"] == 0.000001
+    assert entry["model_info"]["output_cost_per_token"] == 0.000002
+    assert entry["model_info"]["supports_vision"] is True
+    assert entry["model_info"]["supports_function_calling"] is True
+    assert "supports_parallel_function_calling" not in entry["model_info"]
+    assert "supports_response_schema" not in entry["model_info"]
+
+
+def test_generate_litellm_config_no_model_info(tmp_path: Path) -> None:
+    """model_info section is absent when not configured."""
+    content = dedent("""\
+        models:
+          coder:
+            source: { type: huggingface, repo: "test/coder" }
+            disk_gb: 44.8
+            max_context: 131072
+
+        nodes:
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: node }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: gateway }
+
+        assignments:
+          msm1:
+            - model: coder
+              port: 8000
+    """)
+    p = tmp_path / "node-assignments.yaml"
+    p.write_text(content)
+    config = load_cluster_config(p)
+    result = generate_litellm_config(config)
+    parsed = yaml_lib.safe_load(result)
+    entry = parsed["model_list"][0]
+    assert "model_info" not in entry
+
+
+def test_generate_litellm_config_new_litellm_params(tmp_path: Path) -> None:
+    """New litellm_params fields (temperature, max_tokens, seed) appear in generated config."""
+    content = dedent("""\
+        models:
+          coder:
+            source: { type: huggingface, repo: "test/coder" }
+            disk_gb: 44.8
+            max_context: 131072
+            litellm_params:
+              temperature: 0.7
+              max_tokens: 4096
+              seed: 42
+
+        nodes:
+          msm1: { ip: "192.168.1.101", ram_gb: 128, user: "admin", role: node }
+          rock: { ip: "192.168.1.61", ram_gb: 32, user: "infra_user", role: gateway }
+
+        assignments:
+          msm1:
+            - model: coder
+              port: 8000
+    """)
+    p = tmp_path / "node-assignments.yaml"
+    p.write_text(content)
+    config = load_cluster_config(p)
+    result = generate_litellm_config(config)
+    parsed = yaml_lib.safe_load(result)
+    entry = parsed["model_list"][0]
+    assert entry["litellm_params"]["temperature"] == 0.7
+    assert entry["litellm_params"]["max_tokens"] == 4096
+    assert entry["litellm_params"]["seed"] == 42

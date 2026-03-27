@@ -104,7 +104,9 @@ def render(user: dict):
 
                         with st.expander("LiteLLM Routing (Advanced)", expanded=False):
                             lp = model.get("litellm_params") or {}
-                            st.caption("Controls how LiteLLM proxy routes requests to this model. 0 = use global default.")
+                            st.caption(
+                                "Controls how LiteLLM proxy routes requests to this model. 0 = use global default."
+                            )
                             lp_c1, lp_c2, lp_c3 = st.columns(3)
                             new_lp_max_output = lp_c1.number_input(
                                 "Max output tokens",
@@ -154,6 +156,99 @@ def render(user: dict):
                                 step=10,
                                 help="Requests per minute rate limit. 0 = unlimited.",
                                 key=f"edit_lp_rpm_{name}",
+                            )
+                            lp_c7, lp_c8, lp_c9 = st.columns(3)
+                            new_lp_temperature = lp_c7.number_input(
+                                "Temperature",
+                                value=float(lp.get("temperature") or 0.0),
+                                min_value=0.0,
+                                max_value=2.0,
+                                step=0.05,
+                                help="Proxy-level default temperature. 0 = model default.",
+                                key=f"edit_lp_temp_{name}",
+                            )
+                            new_lp_max_tokens = lp_c8.number_input(
+                                "Max tokens",
+                                value=int(lp.get("max_tokens") or 0),
+                                min_value=0,
+                                step=256,
+                                help="Proxy-level default max_tokens for completions. 0 = model default.",
+                                key=f"edit_lp_max_tokens_{name}",
+                            )
+                            new_lp_seed = lp_c9.number_input(
+                                "Seed",
+                                value=int(lp.get("seed") or 0),
+                                min_value=0,
+                                step=1,
+                                help="Seed for reproducible outputs. 0 = non-deterministic.",
+                                key=f"edit_lp_seed_{name}",
+                            )
+
+                        with st.expander("Model Capabilities & Costs (Advanced)", expanded=False):
+                            mi = model.get("model_info") or {}
+                            st.caption(
+                                "Metadata for LiteLLM routing decisions, cost tracking, and capability detection."
+                            )
+                            mi_c1, mi_c2 = st.columns(2)
+                            new_mi_base_model = mi_c1.text_input(
+                                "Base model",
+                                value=mi.get("base_model") or "",
+                                help="Maps custom names to known models for token counting/costs.",
+                                key=f"edit_mi_base_model_{name}",
+                            )
+                            _MODE_OPTIONS = ["", "chat", "completion", "embedding", "image_generation"]
+                            cur_mode = mi.get("mode", "")
+                            new_mi_mode = mi_c2.selectbox(
+                                "Mode",
+                                _MODE_OPTIONS,
+                                index=_MODE_OPTIONS.index(cur_mode) if cur_mode in _MODE_OPTIONS else 0,
+                                help="Model mode for routing. Empty = auto-detect.",
+                                key=f"edit_mi_mode_{name}",
+                            )
+                            mi_c3, mi_c4 = st.columns(2)
+                            new_mi_input_cost = mi_c3.number_input(
+                                "Input cost per token",
+                                value=float(mi.get("input_cost_per_token") or 0.0),
+                                min_value=0.0,
+                                step=0.000001,
+                                format="%.6f",
+                                help="Cost per input token for budget tracking. 0 = free/unknown.",
+                                key=f"edit_mi_input_cost_{name}",
+                            )
+                            new_mi_output_cost = mi_c4.number_input(
+                                "Output cost per token",
+                                value=float(mi.get("output_cost_per_token") or 0.0),
+                                min_value=0.0,
+                                step=0.000001,
+                                format="%.6f",
+                                help="Cost per output token for budget tracking. 0 = free/unknown.",
+                                key=f"edit_mi_output_cost_{name}",
+                            )
+                            st.markdown("**Capability flags**")
+                            mi_c5, mi_c6, mi_c7, mi_c8 = st.columns(4)
+                            new_mi_vision = mi_c5.checkbox(
+                                "Vision",
+                                value=bool(mi.get("supports_vision")),
+                                help="Supports image/multimodal inputs.",
+                                key=f"edit_mi_vision_{name}",
+                            )
+                            new_mi_fc = mi_c6.checkbox(
+                                "Function calling",
+                                value=bool(mi.get("supports_function_calling")),
+                                help="Supports tool/function calling.",
+                                key=f"edit_mi_fc_{name}",
+                            )
+                            new_mi_pfc = mi_c7.checkbox(
+                                "Parallel FC",
+                                value=bool(mi.get("supports_parallel_function_calling")),
+                                help="Supports parallel function calling.",
+                                key=f"edit_mi_pfc_{name}",
+                            )
+                            new_mi_schema = mi_c8.checkbox(
+                                "Response schema",
+                                value=bool(mi.get("supports_response_schema")),
+                                help="Supports structured output / response schema.",
+                                key=f"edit_mi_schema_{name}",
                             )
 
                         with st.expander("Server Tuning (Advanced)", expanded=False):
@@ -298,10 +393,39 @@ def render(user: dict):
                                 new_lp["tpm"] = new_lp_tpm
                             if new_lp_rpm > 0:
                                 new_lp["rpm"] = new_lp_rpm
+                            if new_lp_temperature > 0.0:
+                                new_lp["temperature"] = new_lp_temperature
+                            if new_lp_max_tokens > 0:
+                                new_lp["max_tokens"] = new_lp_max_tokens
+                            if new_lp_seed > 0:
+                                new_lp["seed"] = new_lp_seed
                             if new_lp:
                                 model["litellm_params"] = new_lp
                             else:
                                 model.pop("litellm_params", None)
+
+                            # Build model_info dict — only non-empty/non-zero values
+                            new_mi = {}
+                            if new_mi_base_model.strip():
+                                new_mi["base_model"] = new_mi_base_model.strip()
+                            if new_mi_mode:
+                                new_mi["mode"] = new_mi_mode
+                            if new_mi_input_cost > 0.0:
+                                new_mi["input_cost_per_token"] = new_mi_input_cost
+                            if new_mi_output_cost > 0.0:
+                                new_mi["output_cost_per_token"] = new_mi_output_cost
+                            if new_mi_vision:
+                                new_mi["supports_vision"] = True
+                            if new_mi_fc:
+                                new_mi["supports_function_calling"] = True
+                            if new_mi_pfc:
+                                new_mi["supports_parallel_function_calling"] = True
+                            if new_mi_schema:
+                                new_mi["supports_response_schema"] = True
+                            if new_mi:
+                                model["model_info"] = new_mi
+                            else:
+                                model.pop("model_info", None)
 
                             # Build server_args dict — only non-zero/non-empty values
                             new_sa = {}
@@ -472,6 +596,90 @@ def render(user: dict):
                     help="Requests per minute rate limit. 0 = unlimited.",
                     key="add_lp_rpm",
                 )
+                lp_c7, lp_c8, lp_c9 = st.columns(3)
+                add_lp_temperature = lp_c7.number_input(
+                    "Temperature",
+                    value=0.0,
+                    min_value=0.0,
+                    max_value=2.0,
+                    step=0.05,
+                    help="Proxy-level default temperature. 0 = model default.",
+                    key="add_lp_temp",
+                )
+                add_lp_max_tokens = lp_c8.number_input(
+                    "Max tokens",
+                    value=0,
+                    min_value=0,
+                    step=256,
+                    help="Proxy-level default max_tokens for completions. 0 = model default.",
+                    key="add_lp_max_tokens",
+                )
+                add_lp_seed = lp_c9.number_input(
+                    "Seed",
+                    value=0,
+                    min_value=0,
+                    step=1,
+                    help="Seed for reproducible outputs. 0 = non-deterministic.",
+                    key="add_lp_seed",
+                )
+
+            with st.expander("Model Capabilities & Costs (Advanced)", expanded=False):
+                st.caption("Metadata for LiteLLM routing decisions, cost tracking, and capability detection.")
+                mi_c1, mi_c2 = st.columns(2)
+                add_mi_base_model = mi_c1.text_input(
+                    "Base model",
+                    value="",
+                    help="Maps custom names to known models for token counting/costs (e.g. 'meta-llama/Llama-3-70b').",
+                    key="add_mi_base_model",
+                )
+                _ADD_MODE_OPTIONS = ["", "chat", "completion", "embedding", "image_generation"]
+                add_mi_mode = mi_c2.selectbox(
+                    "Mode",
+                    _ADD_MODE_OPTIONS,
+                    help="Model mode for routing. Empty = auto-detect.",
+                    key="add_mi_mode",
+                )
+                mi_c3, mi_c4 = st.columns(2)
+                add_mi_input_cost = mi_c3.number_input(
+                    "Input cost per token",
+                    value=0.0,
+                    min_value=0.0,
+                    step=0.000001,
+                    format="%.6f",
+                    help="Cost per input token for budget tracking. 0 = free/unknown.",
+                    key="add_mi_input_cost",
+                )
+                add_mi_output_cost = mi_c4.number_input(
+                    "Output cost per token",
+                    value=0.0,
+                    min_value=0.0,
+                    step=0.000001,
+                    format="%.6f",
+                    help="Cost per output token for budget tracking. 0 = free/unknown.",
+                    key="add_mi_output_cost",
+                )
+                st.markdown("**Capability flags**")
+                mi_c5, mi_c6, mi_c7, mi_c8 = st.columns(4)
+                add_mi_vision = mi_c5.checkbox(
+                    "Vision",
+                    help="Supports image/multimodal inputs.",
+                    key="add_mi_vision",
+                )
+                add_mi_fc = mi_c6.checkbox(
+                    "Function calling",
+                    help="Supports tool/function calling.",
+                    key="add_mi_fc",
+                )
+                add_mi_pfc = mi_c7.checkbox(
+                    "Parallel FC",
+                    help="Supports parallel function calling.",
+                    key="add_mi_pfc",
+                )
+                add_mi_schema = mi_c8.checkbox(
+                    "Response schema",
+                    help="Supports structured output / response schema.",
+                    key="add_mi_schema",
+                )
 
             with st.expander("Server Tuning (Advanced)", expanded=False):
                 st.caption("Leave blank to use mlx_lm.server defaults.")
@@ -609,6 +817,31 @@ def render(user: dict):
                         new_lp["tpm"] = add_lp_tpm
                     if add_lp_rpm > 0:
                         new_lp["rpm"] = add_lp_rpm
+                    if add_lp_temperature > 0.0:
+                        new_lp["temperature"] = add_lp_temperature
+                    if add_lp_max_tokens > 0:
+                        new_lp["max_tokens"] = add_lp_max_tokens
+                    if add_lp_seed > 0:
+                        new_lp["seed"] = add_lp_seed
+
+                    # Build model_info dict
+                    new_mi = {}
+                    if add_mi_base_model.strip():
+                        new_mi["base_model"] = add_mi_base_model.strip()
+                    if add_mi_mode:
+                        new_mi["mode"] = add_mi_mode
+                    if add_mi_input_cost > 0.0:
+                        new_mi["input_cost_per_token"] = add_mi_input_cost
+                    if add_mi_output_cost > 0.0:
+                        new_mi["output_cost_per_token"] = add_mi_output_cost
+                    if add_mi_vision:
+                        new_mi["supports_vision"] = True
+                    if add_mi_fc:
+                        new_mi["supports_function_calling"] = True
+                    if add_mi_pfc:
+                        new_mi["supports_parallel_function_calling"] = True
+                    if add_mi_schema:
+                        new_mi["supports_response_schema"] = True
 
                     # Build server_args dict
                     new_sa = {}
@@ -653,6 +886,8 @@ def render(user: dict):
                     }
                     if new_lp:
                         new_model["litellm_params"] = new_lp
+                    if new_mi:
+                        new_model["model_info"] = new_mi
                     if new_sa:
                         new_model["server_args"] = new_sa
                     if parsed_extra:
