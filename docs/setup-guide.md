@@ -77,8 +77,8 @@ On the gateway:
 
 ```zsh
 cd ~/thunder-forge
-docker compose -f docker/docker-compose.yml up -d
-docker compose -f docker/docker-compose.yml ps   # all services should show "Up"
+docker compose -f docker/docker-compose.yml --env-file .env up -d
+docker compose -f docker/docker-compose.yml --env-file .env ps   # all services should show "Up"
 ```
 
 Four services start: PostgreSQL, LiteLLM proxy, Open WebUI, Admin UI.
@@ -160,7 +160,7 @@ Single config file for both the CLI and the Docker stack.
 
 ```zsh
 git pull
-docker compose -f docker/docker-compose.yml up -d --build
+docker compose -f docker/docker-compose.yml --env-file .env up -d --build
 ```
 
 Docker volumes (database, config history) are preserved. The Admin UI retains all config versions across updates.
@@ -170,7 +170,7 @@ Docker volumes (database, config history) are preserved. The Admin UI retains al
 Edit `.env`, then restart:
 
 ```zsh
-docker compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml --env-file .env up -d
 ```
 
 Only containers whose environment changed will restart. Data is preserved.
@@ -178,7 +178,7 @@ Only containers whose environment changed will restart. Data is preserved.
 **Rotating secrets** (`LITELLM_MASTER_KEY`, `WEBUI_SECRET_KEY`, `ADMIN_DB_PASSWORD`):
 1. Generate a new value: `openssl rand -hex 32`
 2. Update `.env`
-3. `docker compose -f docker/docker-compose.yml up -d`
+3. `docker compose -f docker/docker-compose.yml --env-file .env up -d`
 4. Update any API clients that used the old `LITELLM_MASTER_KEY`
 
 **⚠️ Special case: `POSTGRES_PASSWORD`**
@@ -187,16 +187,16 @@ The Postgres password is written into the database volume on first run. Changing
 
 ```zsh
 # Update the password in the running database
-docker compose -f docker/docker-compose.yml exec postgres psql -U litellm -c "ALTER USER litellm PASSWORD 'new-password';"
-docker compose -f docker/docker-compose.yml exec postgres psql -U postgres -c "ALTER USER thunder_admin PASSWORD 'new-password';"
+docker compose -f docker/docker-compose.yml --env-file .env exec postgres psql -U litellm -c "ALTER USER litellm PASSWORD 'new-password';"
+docker compose -f docker/docker-compose.yml --env-file .env exec postgres psql -U postgres -c "ALTER USER thunder_admin PASSWORD 'new-password';"
 
 # Then update .env and restart
-docker compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml --env-file .env up -d
 ```
 
 #### Database schema migrations
 
-Migrations run automatically on every container startup. A `git pull` + `docker compose -f docker/docker-compose.yml up -d --build` is always sufficient — no manual migration commands needed.
+Migrations run automatically on every container startup. A `git pull` + `docker compose -f docker/docker-compose.yml --env-file .env up -d --build` is always sufficient — no manual migration commands needed.
 
 #### Model cache
 
@@ -216,29 +216,29 @@ ssh <user>@<node-ip> "rm -rf ~/.cache/huggingface/hub/<model-repo-name>"
 
 ```zsh
 cd ~/thunder-forge
-docker compose -f docker/docker-compose.yml ps                        # all services should show "Up"
-docker compose -f docker/docker-compose.yml logs --tail=50 <service>  # logs for a specific service
+docker compose -f docker/docker-compose.yml --env-file .env ps                        # all services should show "Up"
+docker compose -f docker/docker-compose.yml --env-file .env logs --tail=50 <service>  # logs for a specific service
 ```
 
 **Admin UI not reachable on port 8501:**
 - Admin UI runs in host network mode — check firewall rules on the gateway
-- Check logs: `docker compose -f docker/docker-compose.yml logs --tail=50 admin-ui`
+- Check logs: `docker compose -f docker/docker-compose.yml --env-file .env logs --tail=50 admin-ui`
 
 **LiteLLM not responding on port 4000:**
-- PostgreSQL must be healthy first: `docker compose -f docker/docker-compose.yml logs postgres`
-- LiteLLM depends on postgres — check `docker compose -f docker/docker-compose.yml ps`
+- PostgreSQL must be healthy first: `docker compose -f docker/docker-compose.yml --env-file .env logs postgres`
+- LiteLLM depends on postgres — check `docker compose -f docker/docker-compose.yml --env-file .env ps`
 
 **All containers exit immediately after `docker compose up`:**
-Missing required `.env` values — check logs for the specific variable name: `docker compose -f docker/docker-compose.yml logs`
+Missing required `.env` values — check logs for the specific variable name: `docker compose -f docker/docker-compose.yml --env-file .env logs`
 
 **Admin UI can't reach gateway via SSH:**
 
 ```zsh
 # Check the SSH key is accessible inside the container
-docker compose -f docker/docker-compose.yml exec admin-ui ls -la $GATEWAY_SSH_KEY
+docker compose -f docker/docker-compose.yml --env-file .env exec admin-ui ls -la $GATEWAY_SSH_KEY
 
 # Test SSH from inside the container
-docker compose -f docker/docker-compose.yml exec admin-ui ssh -i $GATEWAY_SSH_KEY $GATEWAY_SSH_USER@$GATEWAY_SSH_HOST echo ok
+docker compose -f docker/docker-compose.yml --env-file .env exec admin-ui ssh -i $GATEWAY_SSH_KEY $GATEWAY_SSH_USER@$GATEWAY_SSH_HOST echo ok
 ```
 
 Also verify `THUNDER_FORGE_DIR` exists on the gateway.
@@ -268,17 +268,17 @@ Containers fail to connect. Follow the rotation procedure under [Env var changes
 
 ```zsh
 cd ~/thunder-forge
-docker compose -f docker/docker-compose.yml down
+docker compose -f docker/docker-compose.yml --env-file .env down
 rm -rf configs/litellm-config.yaml
 uv run thunder-forge generate-config
-docker compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml --env-file .env up -d
 ```
 
 **Port conflict on Open WebUI (port 8080 already in use):**
 
 ```zsh
 echo 'WEBUI_PORT=8081' >> ~/thunder-forge/.env
-docker compose -f docker/docker-compose.yml up -d
+docker compose -f docker/docker-compose.yml --env-file .env up -d
 ```
 
 ---

@@ -126,7 +126,7 @@ ssh <mac-user>@<mac-ip> 'launchctl bootout gui/$(id -u)/com.mlx-lm-8000 2>/dev/n
 Stop Docker on the gateway:
 
 ```bash
-ssh <gateway-user>@<gateway-ip> "cd ~/thunder-forge && docker compose -f docker/docker-compose.yml down"
+ssh <gateway-user>@<gateway-ip> "cd ~/thunder-forge && docker compose -f docker/docker-compose.yml --env-file .env down"
 ```
 
 ## Troubleshooting
@@ -143,5 +143,5 @@ ssh <gateway-user>@<gateway-ip> "curl -s http://<mac-ip>:8000/v1/models"
 
 **Docker services unhealthy:**
 ```bash
-ssh <gateway-user>@<gateway-ip> "cd ~/thunder-forge && docker compose -f docker/docker-compose.yml logs --tail=30"
+ssh <gateway-user>@<gateway-ip> "cd ~/thunder-forge && docker compose -f docker/docker-compose.yml --env-file .env logs --tail=30"
 ```

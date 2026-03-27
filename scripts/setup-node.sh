@@ -206,11 +206,11 @@ verify_gateway() {
     # Check Docker Compose services
     if [ -f "$TF_DIR/docker/docker-compose.yml" ] || [ -f "$TF_DIR/docker/compose.yaml" ]; then
         cd "$TF_DIR"
-        running=$(docker compose -f docker/docker-compose.yml ps --format '{{.Name}} {{.State}}' 2>/dev/null || true)
+        running=$(docker compose -f docker/docker-compose.yml --env-file .env ps --format '{{.Name}} {{.State}}' 2>/dev/null || true)
         if echo "$running" | grep -q "running"; then
             ok "Docker Compose services running"
         else
-            fail "Docker Compose services not running — run: cd $TF_DIR && docker compose -f docker/docker-compose.yml up -d"
+            fail "Docker Compose services not running — run: cd $TF_DIR && docker compose -f docker/docker-compose.yml --env-file .env up -d"
             errors=$((errors + 1))
         fi
     fi
@@ -363,7 +363,7 @@ ENVEOF
 
     step "Starting Docker Compose..."
     cd "$TF_DIR"
-    docker compose -f docker/docker-compose.yml up -d
+    docker compose -f docker/docker-compose.yml --env-file .env up -d
     echo "  Waiting for services..."
     attempt=0
     max_attempts=12
@@ -374,7 +374,7 @@ ENVEOF
             break
         fi
         if [ "$attempt" -eq "$max_attempts" ]; then
-            warn "LiteLLM not responding yet — check: docker compose -f docker/docker-compose.yml logs litellm"
+            warn "LiteLLM not responding yet — check: docker compose -f docker/docker-compose.yml --env-file .env logs litellm"
         else
             sleep 5
         fi
