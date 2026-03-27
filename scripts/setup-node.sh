@@ -203,17 +203,77 @@ verify_gateway() {
         errors=$((errors + 1))
     fi
 
-    # Check Docker Compose services
-    if [ -f "$TF_DIR/docker/docker-compose.yml" ] || [ -f "$TF_DIR/docker/compose.yaml" ]; then
-        cd "$TF_DIR"
-        running=$(docker compose -f docker/docker-compose.yml --env-file .env ps --format '{{.Name}} {{.State}}' 2>/dev/null || true)
-        if echo "$running" | grep -q "running"; then
-            ok "Docker Compose services running"
+    # ── SSH key ────────────────────────────────────────────
+    case "$GATEWAY_SSH_KEY" in
+        "~"*) fail "GATEWAY_SSH_KEY uses '~' — must be an absolute path (e.g. $HOME/.ssh/id_ed25519)"; errors=$((errors + 1)) ;;
+        *)
+            if [ -f "$GATEWAY_SSH_KEY" ]; then
+                ok "SSH key: $GATEWAY_SSH_KEY"
+            else
+                fail "SSH key not found: $GATEWAY_SSH_KEY"
+                errors=$((errors + 1))
+            fi
+            ;;
+    esac
+
+    # ── authorized_keys ────────────────────────────────────
+    pubkey="${GATEWAY_SSH_KEY}.pub"
+    if [ -f "$pubkey" ]; then
+        pubkey_content="$(cat "$pubkey")"
+        if grep -qF "$pubkey_content" "$HOME/.ssh/authorized_keys" 2>/dev/null; then
+            ok "Gateway public key in authorized_keys"
         else
-            fail "Docker Compose services not running — run: cd $TF_DIR && docker compose -f docker/docker-compose.yml --env-file .env up -d"
+            fail "Gateway public key not in ~/.ssh/authorized_keys — Admin UI can't SSH to localhost"
+            fail "  Fix: cat $pubkey >> ~/.ssh/authorized_keys"
             errors=$((errors + 1))
         fi
+    else
+        warn "No public key at $pubkey — skipping authorized_keys check"
     fi
+
+    # ── litellm config ─────────────────────────────────────
+    litellm_cfg="$TF_DIR/configs/litellm-config.yaml"
+    if [ -f "$litellm_cfg" ]; then
+        ok "litellm-config.yaml exists"
+    elif [ -d "$litellm_cfg" ]; then
+        fail "configs/litellm-config.yaml is a directory (Docker created it) — fix: rm -rf $litellm_cfg && touch $litellm_cfg"
+        errors=$((errors + 1))
+    else
+        fail "configs/litellm-config.yaml missing — run: cd $TF_DIR && uv run thunder-forge generate-config"
+        errors=$((errors + 1))
+    fi
+
+    # ── Docker Compose services ────────────────────────────
+    if [ -f "$TF_DIR/docker/docker-compose.yml" ]; then
+        cd "$TF_DIR"
+        echo ""
+        echo "  Service health:"
+        for svc in postgres litellm openwebui admin-ui; do
+            state=$(docker compose -f docker/docker-compose.yml --env-file .env ps --format '{{.Name}} {{.Health}}' 2>/dev/null | grep "^$svc " | awk '{print $2}')
+            if [ "$state" = "healthy" ]; then
+                ok "  $svc: healthy"
+            elif [ -z "$state" ]; then
+                fail "  $svc: not running"
+                errors=$((errors + 1))
+            else
+                warn "  $svc: $state"
+            fi
+        done
+    fi
+
+    # ── HTTP endpoints ─────────────────────────────────────
+    echo ""
+    echo "  HTTP endpoints:"
+    for endpoint in "LiteLLM:http://localhost:4000/health/readiness" "OpenWebUI:http://localhost:8080/health" "AdminUI:http://localhost:8501/_stcore/health"; do
+        name="${endpoint%%:*}"
+        url="${endpoint#*:}"
+        if curl -sf --connect-timeout 3 "$url" >/dev/null 2>&1; then
+            ok "  $name: reachable ($url)"
+        else
+            fail "  $name: not reachable ($url)"
+            errors=$((errors + 1))
+        fi
+    done
 
     if [ "$errors" -gt 0 ]; then
         echo ""
@@ -387,6 +447,21 @@ ENVEOF
         mkdir -p "$(dirname "$GATEWAY_SSH_KEY")"
         ssh-keygen -t ed25519 -f "$GATEWAY_SSH_KEY" -N ""
         ok "Generated: $GATEWAY_SSH_KEY"
+    fi
+
+    # Add gateway public key to its own authorized_keys so Admin UI can SSH to localhost
+    pubkey="${GATEWAY_SSH_KEY}.pub"
+    if [ -f "$pubkey" ]; then
+        mkdir -p "$HOME/.ssh"
+        chmod 700 "$HOME/.ssh"
+        pubkey_content="$(cat "$pubkey")"
+        if grep -qF "$pubkey_content" "$HOME/.ssh/authorized_keys" 2>/dev/null; then
+            ok "Public key already in authorized_keys"
+        else
+            echo "$pubkey_content" >> "$HOME/.ssh/authorized_keys"
+            chmod 600 "$HOME/.ssh/authorized_keys"
+            ok "Public key added to authorized_keys (Admin UI → localhost SSH)"
+        fi
     fi
 
     verify_gateway

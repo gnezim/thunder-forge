@@ -49,6 +49,19 @@ zsh scripts/setup-node.sh gateway
 
 This bootstraps the gateway node: installs missing dependencies (Docker, uv), starts the Docker stack, and generates the SSH keypair for compute node access. The public key is printed at the end — copy it for the next step.
 
+The Admin UI SSHes to the gateway itself (localhost) to run deploy commands. Add the generated public key to the gateway's own `authorized_keys`:
+
+```zsh
+cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+Also make sure `GATEWAY_SSH_KEY` in `.env` uses an **absolute path** (not `~/...`):
+
+```zsh
+sed -i "s|GATEWAY_SSH_KEY=.*|GATEWAY_SSH_KEY=$HOME/.ssh/id_ed25519|" .env
+```
+
 ### Step 3: Bootstrap Compute Nodes
 
 On **each macOS compute node**, run:

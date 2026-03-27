@@ -10,6 +10,7 @@ help:
 	@echo "  logs            Show logs (optional: s=<service>)"
 	@echo "  setup-gateway   Bootstrap this machine as gateway node"
 	@echo "  setup-node      Bootstrap this machine as compute node"
+	@echo "  check           Verify gateway setup and service health"
 
 up:
 	$(COMPOSE) up -d --build
@@ -32,5 +33,8 @@ setup-gateway:
 setup-node:
 	zsh scripts/setup-node.sh node
 
-.PHONY: help up down restart ps logs setup-gateway setup-node
+check:
+	zsh scripts/setup-node.sh gateway --check
+
+.PHONY: help up down restart ps logs setup-gateway setup-node check
 .DEFAULT_GOAL := help
