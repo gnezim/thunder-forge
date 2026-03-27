@@ -6,16 +6,10 @@ Get your MLX inference cluster running. This guide ends when you reach the Admin
 
 ### Prerequisites
 
-- **Gateway**: Linux or macOS machine with Docker + Docker Compose installed
+- **Gateway**: Linux or macOS machine (Docker is installed automatically in Step 2)
 - **Compute nodes**: one or more macOS Apple Silicon machines
 - All nodes on the same network with SSH access between them
 - **Shell**: zsh — used throughout this guide on both macOS and Linux
-
-Verify Docker is installed on the gateway:
-
-```bash
-docker info
-```
 
 ### Step 1: Clone & Configure
 
