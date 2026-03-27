@@ -1,383 +1,294 @@
 # Thunder Forge Setup Guide
 
-End-to-end guide for deploying an MLX inference cluster with Thunder Forge.
+Get your MLX inference cluster running. This guide ends when you reach the Admin UI — the UI handles cluster configuration, model assignment, and deployment from there.
 
-## Cluster Architecture
+## Quick Start
 
-Thunder Forge manages two types of nodes:
+### Prerequisites
 
-- **Gateway node** (Linux) — runs LiteLLM proxy, Open WebUI, PostgreSQL via Docker Compose. Acts as the control plane: downloads models, deploys services, runs health checks.
-- **Compute nodes** (macOS with Apple Silicon) — run vllm-mlx services via launchd. Each node serves one or more models on dedicated ports.
+- **Gateway**: Linux or macOS machine with Docker + Docker Compose installed
+- **Compute nodes**: one or more macOS Apple Silicon machines
+- All nodes on the same network with SSH access between them
 
-## Prerequisites
-
-- All nodes on the same LAN with SSH access between them
-- macOS on compute nodes, Linux on the gateway node
-- Internet access on the gateway node for model downloads (proxy supported via `HTTP_PROXY`/`HTTPS_PROXY`)
-
-## Step 1: Configure Environment
-
-Create a `.env` file in the project root **before** running the setup script. The same `.env` is used by both `setup-node.sh` and all `thunder-forge` CLI commands.
+Verify Docker is installed on the gateway:
 
 ```bash
-# ~/thunder-forge/.env (gateway node)
-TF_SSH_USER=admin
-TF_SSH_KEY=~/.ssh/id_ed25519
-HF_HOME=~/.cache/huggingface
-# Required if gateway node uses a proxy for outbound internet:
-# HTTP_PROXY=socks5h://127.0.0.1:1080
-# HTTPS_PROXY=socks5h://127.0.0.1:1080
+docker info
 ```
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TF_SSH_USER` | `$USER` env var | Default SSH user for all nodes |
-| `TF_SSH_KEY` | `~/.ssh/id_ed25519` | SSH key path |
-| `TF_DIR` | `~/thunder-forge` | Clone location (set if using a non-default path) |
-| `TF_LOG_DIR` | `~/logs` | Log directory on compute nodes |
-| `TF_REPO_URL` | `https://github.com/shared-goals/thunder-forge.git` | Git clone URL |
-| `HF_HOME` | `~/.cache/huggingface` | HuggingFace cache directory (set to external drive if root partition is small) |
-| `TF_DISABLE_SLEEP` | `true` | Disable macOS sleep on compute nodes (set `false` for laptops) |
+### Step 1: Clone & Configure
 
-Per-node user overrides go in `node-assignments.yaml` (see Step 5).
-
-## Step 2: Bootstrap the Gateway Node
-
-SSH into your gateway node, clone the repo and run the setup script:
+On the gateway node:
 
 ```bash
 git clone https://github.com/shared-goals/thunder-forge.git ~/thunder-forge
 cd ~/thunder-forge
-# Create .env first (see Step 1), then:
+cp docker/.env.example docker/.env
+```
+
+Open `docker/.env` and fill in the **6 required fields**. Generate a value for each secret:
+
+```bash
+openssl rand -hex 32
+```
+
+```bash
+LITELLM_MASTER_KEY=<generated>           # API key for LiteLLM proxy
+POSTGRES_PASSWORD=<generated>            # PostgreSQL password
+WEBUI_SECRET_KEY=<generated>             # Open WebUI session encryption
+ADMIN_DB_PASSWORD=<generated>            # Thunder Admin database password
+GATEWAY_SSH_USER=<your-username>         # SSH user on this gateway machine
+THUNDER_FORGE_DIR=~/thunder-forge        # Absolute path to this repo
+```
+
+All other values in `docker/.env` have safe defaults.
+
+### Step 2: Generate SSH Key for Node Access
+
+```bash
 bash scripts/setup-node.sh gateway
 ```
 
-The script will:
-1. Check prerequisites (not root, internet reachable, curl available)
-2. Prompt for sudo password upfront
-3. Install Docker Engine, `uv`, and `hf` CLI (with `socksio` for proxy support)
-4. Clone thunder-forge and install Python dependencies (`uv sync`)
-5. Generate `docker/.env` with random secrets (LiteLLM master key, Postgres password, WebUI credentials)
-6. Start Docker Compose and wait for services to become healthy
-7. Generate an SSH keypair for connecting to compute nodes
-8. Verify all tools are installed correctly
+This generates the SSH keypair the Admin UI uses to reach compute nodes. The public key is printed at the end — copy it for the next step.
 
-**Save the generated credentials** from `~/thunder-forge/docker/.env`.
+### Step 3: Bootstrap Compute Nodes
 
-After setup, authenticate with HuggingFace (required for gated models):
-
-```bash
-hf auth login
-```
-
-Verify the setup anytime:
-
-```bash
-bash scripts/setup-node.sh gateway --check
-```
-
-> **Port conflict:** If port 8080 is already in use, add `WEBUI_PORT=<port>` to `docker/.env` and restart: `docker compose up -d`.
-
-## Step 3: Bootstrap Compute Nodes
-
-SSH into each compute node, clone the repo and run the setup script:
+On **each macOS compute node**, run:
 
 ```bash
 git clone https://github.com/shared-goals/thunder-forge.git ~/thunder-forge
 cd ~/thunder-forge
-# Optionally create .env (e.g. TF_DISABLE_SLEEP=false for laptops), then:
 zsh scripts/setup-node.sh node
 ```
 
-The script will:
-1. Check prerequisites (not root, internet reachable, curl available)
-2. Prompt for sudo password upfront (needed for sleep disable)
-3. Install Homebrew, `uv`, and `vllm-mlx`
-4. Configure PATH in `~/.zshenv` and `~/.zshrc`
-5. Optionally disable macOS sleep (controlled by `TF_DISABLE_SLEEP`)
-6. Create log directory (`~/logs`)
-7. Verify all tools are installed correctly
-
-Repeat for all compute nodes.
-
-Verify any node's setup anytime:
+Then add the gateway's public key (from Step 2) to the node's authorized keys:
 
 ```bash
-zsh scripts/setup-node.sh node --check
+echo "<public-key-from-step-2>" >> ~/.ssh/authorized_keys
 ```
 
-## Step 4: Distribute SSH Keys
-
-From the gateway node, copy its public key to each compute node:
+Verify connectivity from the gateway:
 
 ```bash
-ssh-copy-id -i ~/.ssh/id_ed25519 <user>@<node-ip>
+ssh -i ~/.ssh/thunder_forge <user>@<node-ip> echo ok
 ```
 
-Verify connectivity:
+### Step 4: Start the Docker Stack
+
+On the gateway:
 
 ```bash
-ssh -o BatchMode=yes <user>@<node-ip> "echo ok"
+cd ~/thunder-forge/docker
+docker compose up -d
+docker compose ps   # all services should show "Up"
 ```
 
-## Step 5: Configure the Cluster
+Four services start: PostgreSQL, LiteLLM proxy, Open WebUI, Admin UI.
 
-All remaining steps run from the **gateway node** in `~/thunder-forge`.
+### Step 5: Open the Admin UI
 
-### node-assignments.yaml (cluster topology)
+Navigate to `http://<gateway-ip>:8501`
 
-Copy the template and edit it for your cluster:
+First run creates the admin account and prompts for credentials. The Admin UI guides you through adding nodes, models, and deploying the cluster from here.
+
+---
+
+## Reference
+
+### Environment Variables
+
+#### `docker/.env` — Docker stack
+
+The main config file. Most users only need this one.
+
+**Core secrets** — all required. Generate each with `openssl rand -hex 32`:
+
+| Variable | Description |
+|---|---|
+| `LITELLM_MASTER_KEY` | API key for the OpenAI-compatible LiteLLM proxy |
+| `POSTGRES_PASSWORD` | PostgreSQL password |
+| `WEBUI_SECRET_KEY` | Open WebUI session encryption key |
+| `ADMIN_DB_PASSWORD` | Thunder Admin database password |
+
+**Admin UI — SSH access:**
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `GATEWAY_SSH_USER` | ✅ | — | SSH user on the gateway node |
+| `GATEWAY_SSH_KEY` | ✅ | `~/.ssh/thunder_forge` | Path to SSH private key on the host (mounted read-only into the container) |
+| `GATEWAY_SSH_HOST` | Optional | `localhost` | Gateway hostname or IP. Defaults to localhost since the Admin UI runs on the gateway. |
+| `GATEWAY_SSH_PORT` | Optional | `22` | SSH port |
+
+**Admin UI — Thunder Forge integration:**
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `THUNDER_FORGE_DIR` | ✅ | — | Absolute path to the thunder-forge repo on the gateway |
+| `HF_TOKEN` | Optional | — | HuggingFace token for private or gated models |
+| `SESSION_TIMEOUT_HOURS` | Optional | `24` | Admin UI session timeout in hours |
+| `DISPLAY_TZ` | Optional | `UTC` | Timezone for timestamps in the Admin UI (e.g. `Europe/Moscow`) |
+
+**Open WebUI:**
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `UI_USERNAME` | Optional | `admin` | Chat interface username |
+| `UI_PASSWORD` | Optional | — | Chat interface password |
+| `WEBUI_AUTH` | Optional | `true` | Require login |
+| `WEBUI_PORT` | Optional | `8080` | Open WebUI port |
+| `ENABLE_SIGNUP` | Optional | `false` | Allow new user registration |
+
+**LiteLLM & monitoring:**
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `LITELLM_WORKERS` | Optional | `4` | LiteLLM worker processes (increase for high request volume) |
+| `PG_PORT` | Optional | `5434` | PostgreSQL port (non-standard to avoid conflicts with a local Postgres instance) |
+| `GRAFANA_URL` | Optional | — | Grafana dashboard URL, shown as a link in the Admin UI |
+
+#### `.env` (repo root) — CLI only
+
+Only needed when running `thunder-forge` CLI commands directly. If you use the Admin UI exclusively, you can skip this file.
+
+| Variable | Required | Description |
+|---|---|---|
+| `TF_SSH_USER` | Yes | Default SSH user for compute nodes |
+| `TF_SSH_KEY` | Yes | Path to SSH key for node access |
+| `HF_HOME` | Optional | HuggingFace cache directory |
+| `HF_TOKEN` | Optional | Private model access |
+| `TF_DIR` | Optional | Path to thunder-forge repo |
+| `TF_DISABLE_SLEEP` | Optional | Disable macOS sleep on nodes (`true`/`false`) |
+
+---
+
+### Updating a Running Cluster
+
+#### Code update (no config changes)
 
 ```bash
-cp configs/node-assignments.yaml.example configs/node-assignments.yaml
-vi configs/node-assignments.yaml
+git pull
+cd docker && docker compose up -d --build
 ```
 
-This is the single source of truth for your cluster. Define models, nodes, and assignments:
+Docker volumes (database, config history) are preserved. The Admin UI retains all config versions across updates.
 
-```yaml
-# Model registry — add models here
-models:
-  coder:
-    source:
-      type: huggingface
-      repo: "mlx-community/Qwen3-Coder-Next-4bit"
-    disk_gb: 44.8
-    kv_per_32k_gb: 0.75
-    max_context: 262144
+#### Env var changes
 
-  fast:
-    source:
-      type: huggingface
-      repo: "mlx-community/Qwen3.5-9B-MLX-4bit"
-    disk_gb: 5.6
-    active_params: "9B dense"
-    max_context: 262144
-
-# Node inventory — one gateway node, one or more compute nodes
-nodes:
-  rock: { ip: "192.168.1.61", ram_gb: 32, role: gateway }
-  msm1: { ip: "192.168.1.101", ram_gb: 128, role: node }
-  msm2: { ip: "192.168.1.102", ram_gb: 128, role: node }
-
-# What runs where — one vllm-mlx process per entry
-assignments:
-  msm1:
-    - model: coder
-      port: 8000
-  msm2:
-    - model: coder
-      port: 8000
-```
-
-Use per-node `user` field if SSH user differs from `TF_SSH_USER`:
-
-```yaml
-nodes:
-  mynode: { ip: "192.168.1.50", ram_gb: 64, role: node, user: myuser }
-```
-
-### Generate LiteLLM config
+Edit `docker/.env`, then restart:
 
 ```bash
-uv run thunder-forge generate-config
+cd docker && docker compose up -d
 ```
 
-Validates memory budgets and generates `configs/litellm-config.yaml`. Validate without writing:
+Only containers whose environment changed will restart. Data is preserved.
+
+**Rotating secrets** (`LITELLM_MASTER_KEY`, `WEBUI_SECRET_KEY`, `ADMIN_DB_PASSWORD`):
+1. Generate a new value: `openssl rand -hex 32`
+2. Update `docker/.env`
+3. `docker compose up -d`
+4. Update any API clients that used the old `LITELLM_MASTER_KEY`
+
+**⚠️ Special case: `POSTGRES_PASSWORD`**
+
+The Postgres password is written into the database volume on first run. Changing `.env` alone after that will break the connection — the value in the database must be updated first:
 
 ```bash
-uv run thunder-forge generate-config --check
+# Update the password in the running database
+docker compose exec postgres psql -U litellm -c "ALTER USER litellm PASSWORD 'new-password';"
+docker compose exec postgres psql -U postgres -c "ALTER USER thunder_admin PASSWORD 'new-password';"
+
+# Then update .env and restart
+docker compose up -d
 ```
 
-## Step 6: Pre-flight Check (recommended)
+#### Database schema migrations
 
-Before deploying, verify all nodes are reachable and correctly set up:
+Migrations run automatically on every container startup. A `git pull` + `docker compose up -d --build` is always sufficient — no manual migration commands needed.
+
+#### Model cache
+
+Model weights live on compute nodes, not in Docker volumes. Adding new models is always safe via the Admin UI.
+
+To free disk space after removing a model from the config:
 
 ```bash
-uv run thunder-forge health --skip-preflight
+ssh <user>@<node-ip> "rm -rf ~/.cache/huggingface/hub/<model-repo-name>"
 ```
 
-Or run a dry-run deploy to see exactly what will happen:
+---
+
+### Troubleshooting
+
+**Check stack health:**
 
 ```bash
-uv run thunder-forge deploy --dry-run
+cd ~/thunder-forge/docker
+docker compose ps                        # all services should show "Up"
+docker compose logs --tail=50 <service>  # logs for a specific service
 ```
 
-This runs pre-flight checks on all nodes (SSH, tools, disk space) then shows the deployment plan without executing. Example output:
+**Admin UI not reachable on port 8501:**
+- Admin UI runs in host network mode — check firewall rules on the gateway
+- Check logs: `docker compose logs --tail=50 admin-ui`
 
-```
-Pre-flight: 2 nodes OK (msm1, msm2), 1 gateway OK (rock)
+**LiteLLM not responding on port 4000:**
+- PostgreSQL must be healthy first: `docker compose logs postgres`
+- LiteLLM depends on postgres — check `docker compose ps`
 
-Deployment plan:
+**All containers exit immediately after `docker compose up`:**
+Missing required `.env` values — check logs for the specific variable name: `docker compose logs`
 
-  msm1 (192.168.1.101) — 1 services:
-    [upload] com.vllm-mlx-8000.plist (coder, port 8000)
-    [restart] 1 launchd services
-    [health] poll /v1/models on ports 8000
-
-  rock (192.168.1.61) — gateway:
-    [restart] LiteLLM proxy (docker compose restart litellm)
-
-Run without --dry-run to execute.
-```
-
-Review the plan, then proceed to deploy.
-
-## Step 7: Deploy
+**Admin UI can't reach gateway via SSH:**
 
 ```bash
-uv run thunder-forge deploy
+# Check the SSH key is accessible inside the container
+docker compose exec admin-ui ls -la $GATEWAY_SSH_KEY
+
+# Test SSH from inside the container
+docker compose exec admin-ui ssh -i $GATEWAY_SSH_KEY $GATEWAY_SSH_USER@$GATEWAY_SSH_HOST echo ok
 ```
 
-This will:
-1. Run pre-flight checks on all target nodes (SSH connectivity, tools, disk space)
-2. Download models on the gateway and rsync to compute nodes (`ensure-models`)
-3. Validate memory budgets
-4. Generate LiteLLM proxy config
-5. Deploy launchd plists to compute nodes via SSH
-6. Restart LiteLLM proxy
-7. Health-poll each service (up to 180s timeout)
-8. Print a summary showing which nodes succeeded/failed
+Also verify `THUNDER_FORGE_DIR` exists on the gateway.
 
-If a node fails, deployment continues to remaining nodes. Example summary:
+**Compute node unreachable:**
+- Verify the public key is in `~/.ssh/authorized_keys` on the node
+- Test from the gateway: `ssh -i ~/.ssh/thunder_forge <user>@<node-ip> echo ok`
 
-```
-Deploy complete: 2/2 nodes succeeded
-  ✓ msm1 — 1 services running
-  ✓ msm2 — 1 services running
-```
-
-Deploy to a single node:
+**mlx-lm service not starting on a compute node:**
 
 ```bash
-uv run thunder-forge deploy --node msm1
+ssh <user>@<node-ip> "tail -50 ~/logs/mlx-lm-<port>.err"
 ```
 
-Skip model sync (useful when models are already present):
+**HuggingFace offline error / model not loading:**
+Model cache is incomplete. Trigger model sync from the Admin UI deploy page, or run directly:
 
 ```bash
-uv run thunder-forge deploy --skip-models
+cd ~/thunder-forge && uv run thunder-forge ensure-models
 ```
 
-Skip pre-flight checks (when you know the environment is correct):
+**`POSTGRES_PASSWORD` changed after first run:**
+Containers fail to connect. Follow the rotation procedure under [Env var changes](#env-var-changes).
 
-```bash
-uv run thunder-forge deploy --skip-preflight
-```
+**LiteLLM `IsADirectoryError`:**
+`configs/litellm-config.yaml` doesn't exist — Docker created a directory instead. Fix:
 
-## Step 8: Verify Cluster Health
-
-```bash
-uv run thunder-forge health
-```
-
-Example output:
-
-```
-Pre-flight: 2 nodes OK (msm1, msm2), 1 gateway OK (rock)
-
-=== Nodes ===
-  ✓ msm1:8000 (coder)
-  ✓ msm2:8000 (coder)
-
-=== Gateway ===
-  ✓ LiteLLM
-  ✓ Open WebUI
-  ✓ PostgreSQL
-
-=== Assignments ===
-  msm1: coder:8000
-  msm2: coder:8000
-```
-
-## Accessing Services
-
-- **LiteLLM API**: `http://<gateway-ip>:4000` — OpenAI-compatible endpoint
-- **Open WebUI**: `http://<gateway-ip>:8080` (or custom `WEBUI_PORT`) — chat interface
-
-Credentials are in `~/thunder-forge/docker/.env`.
-
-Example API call:
-
-```bash
-curl http://<gateway-ip>:4000/v1/chat/completions \
-  -H "Authorization: Bearer $(grep LITELLM_MASTER_KEY ~/thunder-forge/docker/.env | cut -d= -f2)" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "coder", "messages": [{"role": "user", "content": "Hello"}]}'
-```
-
-## Troubleshooting
-
-**Pre-flight fails:**
-Pre-flight checks run automatically before deploy, ensure-models, and health commands. If a check fails, the output tells you exactly what's wrong and how to fix it:
-```
-Pre-flight checks failed:
-
-  msm1 (192.168.1.101):
-    ✗ uv not found — run: setup-node.sh node
-
-Fix these issues and retry.
-```
-
-**Verify a node's setup without reinstalling:**
-```bash
-# On a compute node:
-zsh scripts/setup-node.sh node --check
-
-# On the gateway:
-bash scripts/setup-node.sh gateway --check
-```
-
-**Model won't load (health check fails):**
-```bash
-ssh <user>@<node-ip> "tail -50 ~/logs/vllm-mlx-8000.err"
-```
-
-**Manually restart a service on a node:**
-```bash
-ssh <user>@<node-ip> 'launchctl bootout gui/$(id -u)/com.vllm-mlx-8000 2>/dev/null; launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.vllm-mlx-8000.plist'
-```
-
-**Docker services unhealthy:**
-```bash
-cd ~/thunder-forge/docker && docker compose ps && docker compose logs --tail=50
-```
-
-**LiteLLM can't reach a compute node:**
-```bash
-# Test connectivity from gateway to compute node
-curl -s http://<node-ip>:8000/v1/models
-```
-
-**Port conflict on Open WebUI:**
-```bash
-# Add to docker/.env:
-echo 'WEBUI_PORT=8081' >> ~/thunder-forge/docker/.env
-cd ~/thunder-forge/docker && docker compose up -d
-```
-
-**Memory budget exceeded:**
-```bash
-uv run thunder-forge generate-config
-# Shows per-node memory breakdown with ✓/✗
-```
-
-**Re-deploy after config change:**
-```bash
-# Edit node-assignments.yaml, then:
-uv run thunder-forge deploy
-```
-
-**Deploy failed on one node — fix and retry just that node:**
-```bash
-uv run thunder-forge deploy --node msm1
-```
-
-**LiteLLM fails with `IsADirectoryError`:**
-This happens when `configs/litellm-config.yaml` doesn't exist — Docker creates a directory instead of mounting a file. Fix:
 ```bash
 cd ~/thunder-forge/docker && docker compose down
 rm -rf ~/thunder-forge/configs/litellm-config.yaml
 uv run thunder-forge generate-config
 docker compose up -d
 ```
+
+**Port conflict on Open WebUI (port 8080 already in use):**
+
+```bash
+echo 'WEBUI_PORT=8081' >> ~/thunder-forge/docker/.env
+cd ~/thunder-forge/docker && docker compose up -d
+```
+
+---
+
+## Appendix: Local Test Setup
+
+For a minimal local test on a single machine with a Linux VM, see [`docs/local-test-guide.md`](local-test-guide.md).
