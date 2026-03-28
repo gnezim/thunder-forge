@@ -419,18 +419,36 @@ def generate_litellm_config(config: ClusterConfig) -> str:
                     entry["model_info"] = info
             model_list.append(entry)
             if slot.embedding:
+                # Find the embedding model — try "embedding" first, then any model with serving=embedding
                 emb_model = config.models.get("embedding")
+                emb_name = "embedding"
+                if not emb_model:
+                    for mname, mobj in config.models.items():
+                        if mobj.serving == "embedding":
+                            emb_model = mobj
+                            emb_name = mname
+                            break
                 if emb_model:
-                    model_list.append(
-                        {
-                            "model_name": "embedding",
-                            "litellm_params": {
-                                "model": f"openai/{emb_model.source.repo}",
-                                "api_base": f"http://{node.ip}:{slot.port}/v1",
-                                "api_key": "none",
-                            },
-                        }
-                    )
+                    emb_entry: dict = {
+                        "model_name": emb_name,
+                        "litellm_params": {
+                            "model": f"openai/{emb_model.source.repo}",
+                            "api_base": f"http://{node.ip}:{slot.port}/v1",
+                            "api_key": "none",
+                        },
+                        "model_info": {
+                            "mode": "embedding",
+                        },
+                    }
+                    if emb_model.max_context > 0:
+                        emb_entry["litellm_params"]["max_input_tokens"] = emb_model.max_context
+                    emb_mi = emb_model.model_info
+                    if emb_mi:
+                        if emb_mi.input_cost_per_token is not None:
+                            emb_entry["model_info"]["input_cost_per_token"] = emb_mi.input_cost_per_token
+                        if emb_mi.output_cost_per_token is not None:
+                            emb_entry["model_info"]["output_cost_per_token"] = emb_mi.output_cost_per_token
+                    model_list.append(emb_entry)
     for ep in config.external_endpoints:
         entry = {
             "model_name": ep.model_name,
