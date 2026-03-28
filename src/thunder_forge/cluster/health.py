@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from thunder_forge.cluster.config import ClusterConfig
 from thunder_forge.cluster.ssh import ssh_run
@@ -60,10 +61,19 @@ def run_health_checks(config: ClusterConfig) -> bool:
     all_healthy = True
 
     print("=== Nodes ===")
+    check_tasks = []
     for node_name, slots in sorted(config.assignments.items()):
         node = config.nodes[node_name]
         for slot in slots:
-            healthy = check_node(node.ip, slot.port)
+            check_tasks.append((node_name, node.ip, slot))
+    with ThreadPoolExecutor(max_workers=max(1, len(check_tasks))) as pool:
+        futures = {
+            pool.submit(check_node, ip, slot.port): (node_name, slot)
+            for node_name, ip, slot in check_tasks
+        }
+        for future in as_completed(futures):
+            node_name, slot = futures[future]
+            healthy = future.result()
             status = "✓" if healthy else "✗"
             print(f"  {status} {node_name}:{slot.port} ({slot.model})")
             if not healthy:

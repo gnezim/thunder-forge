@@ -7,9 +7,10 @@ import os
 import threading
 import time as time_mod
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from thunder_forge.cluster.config import Assignment, ClusterConfig, Model, Node
+from thunder_forge.cluster.config import Assignment, ClusterConfig, Model, Node, NodeRole, ServingMode
 from thunder_forge.cluster.ssh import scp_content, ssh_run
 
 LOCK_FILE = "/tmp/thunder-forge-deploy.lock"
@@ -145,7 +146,7 @@ def generate_plist(
     home = node.home_dir
     label = f"com.mlx-lm-{slot.port}"
 
-    if model.serving == "embedding":
+    if model.serving == ServingMode.EMBEDDING:
         program_args = _build_embedding_args(model, slot, home)
     else:
         program_args = _build_chat_args(model, slot, home)
@@ -225,23 +226,17 @@ NEWSYSLOG_CONF = """\
 
 def install_node_tools(node: Node) -> None:
     """Install mlx-lm, mlx-openai-server, and remove legacy vllm-mlx."""
-    ssh_run(node.user, node.ip, "uv tool uninstall vllm-mlx 2>/dev/null || true", timeout=30, shell=node.shell)
-    for tool, extras in [
-        ("mlx-lm", " --with 'httpx[socks]'"),
-        ("mlx-openai-server", " --with 'httpx[socks]'"),
-    ]:
-        result = ssh_run(
-            node.user,
-            node.ip,
-            f"uv tool install --force {tool}{extras}",
-            timeout=120,
-            shell=node.shell,
-        )
-        if result.returncode != 0:
-            stderr = (result.stderr or "").strip()
-            print(f"  Warning: {tool} install failed: {stderr or 'unknown error'} (continuing)")
-        else:
-            print(f"  {tool} installed")
+    cmd = (
+        "uv tool uninstall vllm-mlx 2>/dev/null || true"
+        " && uv tool install --force mlx-lm --with 'httpx[socks]'"
+        " && uv tool install --force mlx-openai-server --with 'httpx[socks]'"
+    )
+    result = ssh_run(node.user, node.ip, cmd, timeout=240, shell=node.shell)
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        print(f"  Warning: tool install failed: {stderr or 'unknown error'} (continuing)")
+    else:
+        print("  mlx-lm + mlx-openai-server installed")
 
 
 def deploy_node(
@@ -271,26 +266,18 @@ def deploy_node(
         return [f"{node_name}: failed to get UID — {(uid_result.stderr or '').strip()}"]
     uid = uid_result.stdout.strip()
 
-    # Clean up legacy vllm-mlx plists
-    legacy_ls = ssh_run(
-        node.user,
-        node.ip,
-        "ls ~/Library/LaunchAgents/com.vllm-mlx-*.plist 2>/dev/null || true",
-        shell=node.shell,
+    # Clean up legacy vllm-mlx plists in a single SSH call
+    legacy_cleanup = (
+        f"for p in ~/Library/LaunchAgents/com.vllm-mlx-*.plist; do "
+        f'[ -f "$p" ] && label=$(basename "$p" .plist) && '
+        f"launchctl bootout gui/{uid}/$label 2>/dev/null; rm -f \"$p\"; done; "
+        f"sudo rm -f /etc/newsyslog.d/vllm-mlx.conf"
     )
-    if legacy_ls.stdout.strip():
-        print("  Removing legacy vllm-mlx services...")
-        for line in legacy_ls.stdout.strip().splitlines():
-            filename = line.strip().split("/")[-1]
-            try:
-                port = int(filename.replace("com.vllm-mlx-", "").replace(".plist", ""))
-                stale_label = f"com.vllm-mlx-{port}"
-                bootout = f"launchctl bootout gui/{uid}/{stale_label} 2>/dev/null"
-                cmd = f"{bootout}; rm ~/Library/LaunchAgents/{stale_label}.plist"
-                ssh_run(node.user, node.ip, cmd, shell=node.shell)
-            except ValueError:
-                continue
-        ssh_run(node.user, node.ip, "sudo rm -f /etc/newsyslog.d/vllm-mlx.conf", shell=node.shell)
+    legacy_result = ssh_run(node.user, node.ip, legacy_cleanup, shell=node.shell)
+    if legacy_result.returncode == 0 and "com.vllm-mlx" not in (legacy_result.stderr or ""):
+        pass  # no legacy plists or cleaned up silently
+    else:
+        print("  Cleaned up legacy vllm-mlx services")
 
     install_node_tools(node)
 
@@ -394,7 +381,7 @@ def run_deploy(config: ClusterConfig, *, target_node: str | None = None, dry_run
             return False
         deploy_nodes = [target_node]
     else:
-        deploy_nodes = [n for n in config.assignments if config.nodes[n].role == "node"]
+        deploy_nodes = [n for n in config.assignments if config.nodes[n].role == NodeRole.NODE]
 
     if dry_run:
         print("\nDeployment plan:\n")
@@ -427,16 +414,18 @@ def run_deploy(config: ClusterConfig, *, target_node: str | None = None, dry_run
         succeeded: list[str] = []
         failed: dict[str, str] = {}
 
-        for node_name in deploy_nodes:
-            print(f"\nDeploying to {node_name}...")
-            errors = deploy_node(node_name, config)
-            if errors:
-                failed[node_name] = "; ".join(errors)
-                for err in errors:
-                    print(f"  ✗ {err}")
-            else:
-                succeeded.append(node_name)
-                print("  ✓ Plists deployed")
+        with ThreadPoolExecutor(max_workers=len(deploy_nodes)) as pool:
+            futures = {pool.submit(deploy_node, n, config): n for n in deploy_nodes}
+            for future in as_completed(futures):
+                node_name = futures[future]
+                errors = future.result()
+                if errors:
+                    failed[node_name] = "; ".join(errors)
+                    for err in errors:
+                        print(f"  ✗ {err}")
+                else:
+                    succeeded.append(node_name)
+                    print(f"  ✓ {node_name} plists deployed")
 
         # LiteLLM restart — only if at least one node succeeded
         litellm_ok = False
@@ -457,10 +446,19 @@ def run_deploy(config: ClusterConfig, *, target_node: str | None = None, dry_run
         # Health poll — only successfully deployed nodes
         if succeeded:
             print("\nWaiting for services to become healthy...")
+            poll_tasks = []
             for node_name in succeeded:
                 node = config.nodes[node_name]
                 for slot in config.assignments[node_name]:
-                    healthy = health_poll(node.ip, slot.port)
+                    poll_tasks.append((node_name, node.ip, slot))
+            with ThreadPoolExecutor(max_workers=len(poll_tasks)) as pool:
+                futures = {
+                    pool.submit(health_poll, ip, slot.port): (node_name, slot)
+                    for node_name, ip, slot in poll_tasks
+                }
+                for future in as_completed(futures):
+                    node_name, slot = futures[future]
+                    healthy = future.result()
                     status = "✓ healthy" if healthy else "✗ timeout"
                     print(f"  {status} — {node_name}:{slot.port} ({slot.model})")
                     if not healthy:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import platform
 import shlex
@@ -14,16 +15,18 @@ def _login_shell() -> str:
     return "zsh" if platform.system() == "Darwin" else "bash"
 
 
-def _ssh_key_args() -> list[str]:
+@functools.lru_cache(maxsize=1)
+def _ssh_key_args() -> tuple[str, ...]:
     """Return -i <key> args if GATEWAY_SSH_KEY is set, otherwise empty."""
     key = os.environ.get("GATEWAY_SSH_KEY")
     if key:
         key = os.path.expanduser(key)
         if os.path.isfile(key):
-            return ["-i", key]
-    return []
+            return ("-i", key)
+    return ()
 
 
+@functools.lru_cache(maxsize=32)
 def _is_local(ip: str) -> bool:
     """Check if the given IP belongs to this machine by trying to bind to it."""
     if ip in ("127.0.0.1", "::1"):

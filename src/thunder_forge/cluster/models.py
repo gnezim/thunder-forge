@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 from thunder_forge.cluster.config import ClusterConfig
@@ -103,14 +104,12 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
             f"echo -n {task.revision} > {HF_CACHE}/models--{hf_cache_path}/refs/main"
         )
         ssh_run(gw.user, gw.ip, refs_cmd, shell=gw.shell)
-    for node_name in task.target_nodes:
+    def _sync_to_node(node_name: str) -> str | None:
         node = config.nodes[node_name]
         if _check_hf_cached(node.user, node.ip, task.repo, shell=node.shell):
             print(f"  {task.model_name} already cached on {node_name}")
-            continue
+            return None
         print(f"  Syncing {task.model_name} to {node_name}...")
-        # Run rsync ON the gateway via SSH so that ~ expands as the gateway user's home.
-        # This also avoids the "both remote" error when the caller is containerized.
         ssh_args = " ".join([*_ssh_key_args(), "-o", "StrictHostKeyChecking=no"])
         rsync_cmd = (
             f"rsync -az --progress -e 'ssh {ssh_args}' "
@@ -119,7 +118,15 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
         )
         rsync_result = ssh_run(gw.user, gw.ip, rsync_cmd, timeout=3600, stream=True, shell=gw.shell)
         if rsync_result.returncode != 0:
-            errors.append(f"Rsync to {node_name} failed: {(rsync_result.stderr or '').strip()}")
+            return f"Rsync to {node_name} failed: {(rsync_result.stderr or '').strip()}"
+        return None
+
+    with ThreadPoolExecutor(max_workers=max(1, len(task.target_nodes))) as pool:
+        futures = {pool.submit(_sync_to_node, n): n for n in task.target_nodes}
+        for future in as_completed(futures):
+            err = future.result()
+            if err:
+                errors.append(err)
     return errors
 
 

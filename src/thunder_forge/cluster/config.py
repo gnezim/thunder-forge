@@ -5,10 +5,22 @@ from __future__ import annotations
 import os
 import subprocess
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
+
+
+class ServingMode(StrEnum):
+    CHAT = "chat"
+    EMBEDDING = "embedding"
+    CLI = "cli"
+
+
+class NodeRole(StrEnum):
+    NODE = "node"
+    GATEWAY = "gateway"
 
 
 def _represent_float(dumper: yaml.Dumper, value: float) -> yaml.ScalarNode:
@@ -88,7 +100,7 @@ class Model:
     ram_gb: float | None = None
     active_params: str = ""
     max_context: int = 0
-    serving: str = ""
+    serving: ServingMode | str = ""
     notes: str = ""
     extra_args: list[str] | None = None
     enable_thinking: bool | None = None
@@ -102,7 +114,7 @@ class Node:
     ip: str
     ram_gb: int
     user: str = ""
-    role: str = "node"
+    role: NodeRole | str = NodeRole.NODE
     # Resolved during pre-flight — None until populated
     platform: str | None = None
     shell: str | None = None
@@ -136,12 +148,12 @@ class ClusterConfig:
 
     @property
     def compute_nodes(self) -> dict[str, Node]:
-        return {k: v for k, v in self.nodes.items() if v.role == "node"}
+        return {k: v for k, v in self.nodes.items() if v.role == NodeRole.NODE}
 
     @property
     def gateway_name(self) -> str:
         for k, v in self.nodes.items():
-            if v.role == "gateway":
+            if v.role == NodeRole.GATEWAY:
                 return k
         msg = "No gateway node found in config"
         raise ValueError(msg)
@@ -231,7 +243,7 @@ def _parse_model(raw: dict) -> Model:
         ram_gb=raw.get("ram_gb"),
         active_params=raw.get("active_params", ""),
         max_context=raw.get("max_context", 0),
-        serving=raw.get("serving", ""),
+        serving=ServingMode(raw["serving"]) if raw.get("serving") else "",
         notes=raw.get("notes", ""),
         extra_args=raw.get("extra_args"),
         enable_thinking=raw.get("enable_thinking"),
@@ -249,13 +261,14 @@ def parse_cluster_config(raw: dict) -> ClusterConfig:
     """
     models = {k: _parse_model(v) for k, v in raw.get("models", {}).items()}
 
-    _ROLE_MIGRATION = {"inference": "node", "infra": "gateway"}
+    _ROLE_MIGRATION = {"inference": NodeRole.NODE, "infra": NodeRole.GATEWAY}
 
     nodes = {}
     for k, v in raw.get("nodes", {}).items():
         raw_role = v.get("role", "node")
-        role = _ROLE_MIGRATION.get(raw_role, raw_role)
-        if raw_role != role:
+        migrated = _ROLE_MIGRATION.get(raw_role)
+        role = migrated if migrated else NodeRole(raw_role)
+        if migrated:
             import warnings
 
             # stacklevel=2: when called via load_cluster_config, warning
@@ -264,7 +277,7 @@ def parse_cluster_config(raw: dict) -> ClusterConfig:
             # frame too deep — acceptable since the admin UI is the primary
             # direct caller and doesn't rely on warning attribution.
             warnings.warn(
-                f"Node '{k}': role '{raw_role}' is deprecated, use '{role}' instead",
+                f"Node '{k}': role '{raw_role}' is deprecated, use '{role.value}' instead",
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -352,46 +365,47 @@ def validate_memory(config: ClusterConfig) -> list[str]:
     return errors
 
 
+def _build_embedding_entry(model_name: str, model: Model, node_ip: str, port: int) -> dict:
+    """Build a LiteLLM model_list entry for an embedding model."""
+    entry: dict = {
+        "model_name": model_name,
+        "litellm_params": {
+            "model": f"openai/{model.source.repo}",
+            "api_base": f"http://{node_ip}:{port}/v1",
+            "api_key": "none",
+            "drop_params": True,
+            "encoding_format": "float",
+        },
+        "model_info": {
+            "mode": "embedding",
+        },
+    }
+    if model.max_context > 0:
+        entry["litellm_params"]["max_input_tokens"] = model.max_context
+    mi = model.model_info
+    if mi:
+        if mi.input_cost_per_token is not None:
+            entry["model_info"]["input_cost_per_token"] = mi.input_cost_per_token
+        if mi.output_cost_per_token is not None:
+            entry["model_info"]["output_cost_per_token"] = mi.output_cost_per_token
+    return entry
+
+
 def generate_litellm_config(config: ClusterConfig) -> str:
     model_list: list[dict] = []
     for node_name, slots in sorted(config.assignments.items()):
         node = config.nodes[node_name]
         for slot in slots:
             model = config.models[slot.model]
-            if model.serving == "cli":
+            if model.serving == ServingMode.CLI:
                 continue
-            if model.serving == "embedding":
-                # Embedding model on its own port — generate an embedding-mode entry
-                emb_entry: dict = {
-                    "model_name": slot.model,
-                    "litellm_params": {
-                        "model": f"openai/{model.source.repo}",
-                        "api_base": f"http://{node.ip}:{slot.port}/v1",
-                        "api_key": "none",
-                        "drop_params": True,
-                        "encoding_format": "float",
-                    },
-                    "model_info": {
-                        "mode": "embedding",
-                    },
-                }
-                if model.max_context > 0:
-                    emb_entry["litellm_params"]["max_input_tokens"] = model.max_context
-                emb_mi = model.model_info
-                if emb_mi:
-                    if emb_mi.input_cost_per_token is not None:
-                        emb_entry["model_info"]["input_cost_per_token"] = emb_mi.input_cost_per_token
-                    if emb_mi.output_cost_per_token is not None:
-                        emb_entry["model_info"]["output_cost_per_token"] = emb_mi.output_cost_per_token
-                model_list.append(emb_entry)
+            if model.serving == ServingMode.EMBEDDING:
+                model_list.append(_build_embedding_entry(slot.model, model, node.ip, slot.port))
                 continue
-            # Use "openai" provider — mlx_lm.server is fully OpenAI-compatible.
-            # "hosted_vllm" provider forces SSL in some LiteLLM versions.
-            provider = "openai"
             entry: dict = {
                 "model_name": slot.model,
                 "litellm_params": {
-                    "model": f"{provider}/{model.source.repo}",
+                    "model": f"openai/{model.source.repo}",
                     "api_base": f"http://{node.ip}:{slot.port}/v1",
                     "api_key": "none",
                 },
@@ -444,38 +458,16 @@ def generate_litellm_config(config: ClusterConfig) -> str:
                     entry["model_info"] = info
             model_list.append(entry)
             if slot.embedding:
-                # Find the embedding model — try "embedding" first, then any model with serving=embedding
                 emb_model = config.models.get("embedding")
                 emb_name = "embedding"
                 if not emb_model:
                     for mname, mobj in config.models.items():
-                        if mobj.serving == "embedding":
+                        if mobj.serving == ServingMode.EMBEDDING:
                             emb_model = mobj
                             emb_name = mname
                             break
                 if emb_model:
-                    emb_entry: dict = {
-                        "model_name": emb_name,
-                        "litellm_params": {
-                            "model": f"openai/{emb_model.source.repo}",
-                            "api_base": f"http://{node.ip}:{slot.port}/v1",
-                            "api_key": "none",
-                            "drop_params": True,
-                        "encoding_format": "float",
-                        },
-                        "model_info": {
-                            "mode": "embedding",
-                        },
-                    }
-                    if emb_model.max_context > 0:
-                        emb_entry["litellm_params"]["max_input_tokens"] = emb_model.max_context
-                    emb_mi = emb_model.model_info
-                    if emb_mi:
-                        if emb_mi.input_cost_per_token is not None:
-                            emb_entry["model_info"]["input_cost_per_token"] = emb_mi.input_cost_per_token
-                        if emb_mi.output_cost_per_token is not None:
-                            emb_entry["model_info"]["output_cost_per_token"] = emb_mi.output_cost_per_token
-                    model_list.append(emb_entry)
+                    model_list.append(_build_embedding_entry(emb_name, emb_model, node.ip, slot.port))
     for ep in config.external_endpoints:
         entry = {
             "model_name": ep.model_name,
