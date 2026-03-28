@@ -369,6 +369,7 @@ def generate_litellm_config(config: ClusterConfig) -> str:
                         "api_base": f"http://{node.ip}:{slot.port}/v1",
                         "api_key": "none",
                         "drop_params": True,
+                        "encoding_format": "float",
                     },
                     "model_info": {
                         "mode": "embedding",
@@ -460,6 +461,7 @@ def generate_litellm_config(config: ClusterConfig) -> str:
                             "api_base": f"http://{node.ip}:{slot.port}/v1",
                             "api_key": "none",
                             "drop_params": True,
+                        "encoding_format": "float",
                         },
                         "model_info": {
                             "mode": "embedding",
