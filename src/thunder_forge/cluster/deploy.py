@@ -228,7 +228,7 @@ def install_node_tools(node: Node) -> None:
     ssh_run(node.user, node.ip, "uv tool uninstall vllm-mlx 2>/dev/null || true", timeout=30, shell=node.shell)
     for tool, extras in [
         ("mlx-lm", " --with 'httpx[socks]'"),
-        ("mlx-openai-server", ""),
+        ("mlx-openai-server", " --with 'httpx[socks]'"),
     ]:
         result = ssh_run(
             node.user,
