@@ -286,3 +286,74 @@ def test_generate_plist_log_paths() -> None:
     assert "/Users/admin/logs/mlx-lm-8000.log" in xml_str
     assert "/Users/admin/logs/mlx-lm-8000.err" in xml_str
     assert "vllm" not in xml_str
+
+
+def test_generate_plist_embedding_uses_mlx_openai_server() -> None:
+    """Embedding models use mlx-openai-server instead of mlx_lm.server."""
+    node = Node(
+        ip="192.168.1.101",
+        ram_gb=128,
+        user="admin",
+        role="node",
+        home_dir="/Users/admin",
+        homebrew_prefix="/opt/homebrew",
+    )
+    model = Model(
+        source=ModelSource(type="huggingface", repo="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"),
+        disk_gb=0.5,
+        serving="embedding",
+    )
+    slot = Assignment(model="embedding-fast", port=8002)
+    xml_str = generate_plist(model, slot, node)
+    root = ET.fromstring(xml_str)
+    args = [s.text for s in root.findall(".//array/string")]
+    assert args[0] == "/Users/admin/.local/bin/mlx-openai-server"
+    assert "launch" in args
+    assert "--model-type" in args
+    assert args[args.index("--model-type") + 1] == "embeddings"
+    assert "--model-path" in args
+    assert args[args.index("--model-path") + 1] == "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
+    assert args[args.index("--port") + 1] == "8002"
+    assert args[args.index("--host") + 1] == "0.0.0.0"
+    assert "mlx_lm.server" not in xml_str
+
+
+def test_generate_plist_embedding_with_extra_args() -> None:
+    """Embedding models support extra_args."""
+    node = Node(
+        ip="192.168.1.101",
+        ram_gb=128,
+        user="admin",
+        role="node",
+        home_dir="/Users/admin",
+        homebrew_prefix="/opt/homebrew",
+    )
+    model = Model(
+        source=ModelSource(type="huggingface", repo="mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"),
+        disk_gb=0.5,
+        serving="embedding",
+        extra_args=["--log-level", "DEBUG"],
+    )
+    slot = Assignment(model="embedding-fast", port=8002)
+    xml_str = generate_plist(model, slot, node)
+    root = ET.fromstring(xml_str)
+    args = [s.text for s in root.findall(".//array/string")]
+    assert "--log-level" in args
+    assert "DEBUG" in args
+
+
+def test_generate_plist_non_embedding_uses_mlx_lm() -> None:
+    """Non-embedding models still use mlx_lm.server."""
+    node = Node(
+        ip="192.168.1.101",
+        ram_gb=128,
+        user="admin",
+        role="node",
+        home_dir="/Users/admin",
+        homebrew_prefix="/opt/homebrew",
+    )
+    model = Model(source=ModelSource(type="huggingface", repo="test/model"), disk_gb=10)
+    slot = Assignment(model="test", port=8000)
+    xml_str = generate_plist(model, slot, node)
+    assert "mlx_lm.server" in xml_str
+    assert "mlx-openai-server" not in xml_str

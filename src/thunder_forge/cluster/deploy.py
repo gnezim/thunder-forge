@@ -86,30 +86,15 @@ def _require_resolved(node: Node, node_name: str) -> None:
         raise ValueError(msg)
 
 
-def generate_plist(
-    model: Model,
-    slot: Assignment,
-    node: Node,
-) -> str:
-    _require_resolved(node, f"port-{slot.port}")
-    home = node.home_dir
-    label = f"com.mlx-lm-{slot.port}"
+def _build_chat_args(model: Model, slot: Assignment, home: str) -> list[str]:
+    """Build ProgramArguments for mlx_lm.server (chat/completion models)."""
     server_path = f"{home}/.local/bin/mlx_lm.server"
-
-    program_args = [
-        server_path,
-        "--model",
-        model.source.repo,
-        "--port",
-        str(slot.port),
-        "--host",
-        "0.0.0.0",
-    ]
+    args = [server_path, "--model", model.source.repo, "--port", str(slot.port), "--host", "0.0.0.0"]
 
     if model.enable_thinking is not None:
         import json
 
-        program_args.extend(["--chat-template-args", json.dumps({"enable_thinking": model.enable_thinking})])
+        args.extend(["--chat-template-args", json.dumps({"enable_thinking": model.enable_thinking})])
 
     if model.server_args:
         sa = model.server_args
@@ -128,10 +113,42 @@ def generate_plist(
             ("--num-draft-tokens", sa.num_draft_tokens),
         ]:
             if value is not None:
-                program_args.extend([flag, str(value)])
+                args.extend([flag, str(value)])
 
     if model.extra_args:
-        program_args.extend(model.extra_args)
+        args.extend(model.extra_args)
+    return args
+
+
+def _build_embedding_args(model: Model, slot: Assignment, home: str) -> list[str]:
+    """Build ProgramArguments for mlx-openai-server (embedding models)."""
+    server_path = f"{home}/.local/bin/mlx-openai-server"
+    args = [
+        server_path, "launch",
+        "--model-type", "embeddings",
+        "--model-path", model.source.repo,
+        "--port", str(slot.port),
+        "--host", "0.0.0.0",
+        "--no-log-file",
+    ]
+    if model.extra_args:
+        args.extend(model.extra_args)
+    return args
+
+
+def generate_plist(
+    model: Model,
+    slot: Assignment,
+    node: Node,
+) -> str:
+    _require_resolved(node, f"port-{slot.port}")
+    home = node.home_dir
+    label = f"com.mlx-lm-{slot.port}"
+
+    if model.serving == "embedding":
+        program_args = _build_embedding_args(model, slot, home)
+    else:
+        program_args = _build_chat_args(model, slot, home)
 
     path_parts = [f"{home}/.local/bin", "/usr/bin", "/bin"]
     if node.homebrew_prefix:
@@ -207,20 +224,24 @@ NEWSYSLOG_CONF = """\
 
 
 def install_node_tools(node: Node) -> None:
-    """Install mlx-lm (with socks proxy support) and remove legacy vllm-mlx."""
+    """Install mlx-lm, mlx-openai-server, and remove legacy vllm-mlx."""
     ssh_run(node.user, node.ip, "uv tool uninstall vllm-mlx 2>/dev/null || true", timeout=30, shell=node.shell)
-    result = ssh_run(
-        node.user,
-        node.ip,
-        "uv tool install --force mlx-lm --with 'httpx[socks]'",
-        timeout=120,
-        shell=node.shell,
-    )
-    if result.returncode != 0:
-        stderr = (result.stderr or "").strip()
-        print(f"  Warning: mlx-lm install failed: {stderr or 'unknown error'} (continuing)")
-    else:
-        print("  mlx-lm installed")
+    for tool, extras in [
+        ("mlx-lm", " --with 'httpx[socks]'"),
+        ("mlx-openai-server", ""),
+    ]:
+        result = ssh_run(
+            node.user,
+            node.ip,
+            f"uv tool install --force {tool}{extras}",
+            timeout=120,
+            shell=node.shell,
+        )
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            print(f"  Warning: {tool} install failed: {stderr or 'unknown error'} (continuing)")
+        else:
+            print(f"  {tool} installed")
 
 
 def deploy_node(
