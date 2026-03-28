@@ -358,7 +358,30 @@ def generate_litellm_config(config: ClusterConfig) -> str:
         node = config.nodes[node_name]
         for slot in slots:
             model = config.models[slot.model]
-            if model.serving in ("embedding", "cli"):
+            if model.serving == "cli":
+                continue
+            if model.serving == "embedding":
+                # Embedding model on its own port — generate an embedding-mode entry
+                emb_entry: dict = {
+                    "model_name": slot.model,
+                    "litellm_params": {
+                        "model": f"openai/{model.source.repo}",
+                        "api_base": f"http://{node.ip}:{slot.port}/v1",
+                        "api_key": "none",
+                    },
+                    "model_info": {
+                        "mode": "embedding",
+                    },
+                }
+                if model.max_context > 0:
+                    emb_entry["litellm_params"]["max_input_tokens"] = model.max_context
+                emb_mi = model.model_info
+                if emb_mi:
+                    if emb_mi.input_cost_per_token is not None:
+                        emb_entry["model_info"]["input_cost_per_token"] = emb_mi.input_cost_per_token
+                    if emb_mi.output_cost_per_token is not None:
+                        emb_entry["model_info"]["output_cost_per_token"] = emb_mi.output_cost_per_token
+                model_list.append(emb_entry)
                 continue
             # Use "openai" provider — mlx_lm.server is fully OpenAI-compatible.
             # "hosted_vllm" provider forces SSL in some LiteLLM versions.
