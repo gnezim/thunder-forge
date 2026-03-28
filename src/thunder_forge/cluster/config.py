@@ -368,6 +368,7 @@ def generate_litellm_config(config: ClusterConfig) -> str:
                         "model": f"openai/{model.source.repo}",
                         "api_base": f"http://{node.ip}:{slot.port}/v1",
                         "api_key": "none",
+                        "drop_params": True,
                     },
                     "model_info": {
                         "mode": "embedding",
@@ -458,6 +459,7 @@ def generate_litellm_config(config: ClusterConfig) -> str:
                             "model": f"openai/{emb_model.source.repo}",
                             "api_base": f"http://{node.ip}:{slot.port}/v1",
                             "api_key": "none",
+                            "drop_params": True,
                         },
                         "model_info": {
                             "mode": "embedding",
