@@ -9,11 +9,6 @@
 # Affected: LiteLLM 1.81.x, 1.82.x. No upstream fix as of 2026-03-29.
 # Remove this patch when LiteLLM fixes the bug upstream.
 
-PATCH_FILE=$(python -c "
-import litellm.llms.anthropic.experimental_pass_through.adapters.transformation as t
-print(t.__file__)
-" 2>/dev/null)
-
 LITELLM_VERSION=$(python -c "
 try:
     import litellm
@@ -26,18 +21,29 @@ except Exception:
     print('unknown')
 " 2>/dev/null)
 
+BUGGY_PATTERN='if choice.delta.tool_calls is not None:'
+FIXED_PATTERN='if choice.delta.tool_calls is not None and len(choice.delta.tool_calls) > 0:'
+
+patch_file() {
+  if grep -q "$BUGGY_PATTERN" "$1"; then
+    sed -i "s/$BUGGY_PATTERN/$FIXED_PATTERN/" "$1"
+    echo "[litellm-entrypoint] Patched: $1"
+    return 0
+  fi
+  return 1
+}
+
 # Patch versions known to be affected (1.81.x, 1.82.x)
 case "$LITELLM_VERSION" in
   1.81.*|1.82.*)
-    if [ -n "$PATCH_FILE" ] && [ -f "$PATCH_FILE" ]; then
-      if grep -q 'if choice.delta.tool_calls is not None:' "$PATCH_FILE"; then
-        sed -i 's/if choice.delta.tool_calls is not None:/if choice.delta.tool_calls is not None and len(choice.delta.tool_calls) > 0:/' "$PATCH_FILE"
-        echo "[litellm-entrypoint] Patched streaming bug in LiteLLM $LITELLM_VERSION ($PATCH_FILE)"
-      else
-        echo "[litellm-entrypoint] LiteLLM $LITELLM_VERSION — patch already applied or code changed"
-      fi
+    PATCHED=0
+    for f in $(find / -path "*/anthropic/experimental_pass_through/adapters/transformation.py" 2>/dev/null); do
+      patch_file "$f" && PATCHED=$((PATCHED + 1))
+    done
+    if [ "$PATCHED" -gt 0 ]; then
+      echo "[litellm-entrypoint] Patched $PATCHED file(s) in LiteLLM $LITELLM_VERSION"
     else
-      echo "[litellm-entrypoint] WARNING: could not locate transformation.py (PATCH_FILE=$PATCH_FILE)"
+      echo "[litellm-entrypoint] LiteLLM $LITELLM_VERSION — patch already applied or pattern not found"
     fi
     ;;
   *)
