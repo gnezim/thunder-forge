@@ -224,19 +224,35 @@ NEWSYSLOG_CONF = """\
 """
 
 
-def install_node_tools(node: Node) -> None:
-    """Install mlx-lm, mlx-openai-server, and remove legacy vllm-mlx."""
-    cmd = (
-        "uv tool uninstall vllm-mlx 2>/dev/null || true"
-        " && uv tool install --force mlx-lm --with 'httpx[socks]'"
-        " && uv tool install --force mlx-openai-server --with 'httpx[socks]'"
+def install_node_tools(node: Node, *, needs_embedding: bool = False) -> None:
+    """Install mlx-lm (always) and mlx-openai-server (only if node has embedding assignments)."""
+    # Always remove legacy vllm-mlx first
+    ssh_run(node.user, node.ip, "uv tool uninstall vllm-mlx 2>/dev/null || true", timeout=60, shell=node.shell)
+
+    # Install mlx-lm
+    result = ssh_run(
+        node.user, node.ip, "uv tool install --force mlx-lm --with 'httpx[socks]'", timeout=240, shell=node.shell
     )
-    result = ssh_run(node.user, node.ip, cmd, timeout=240, shell=node.shell)
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
-        print(f"  Warning: tool install failed: {stderr or 'unknown error'} (continuing)")
+        print(f"  Warning: mlx-lm install failed: {stderr or 'unknown error'} (continuing)")
+        return
+    print("  mlx-lm installed")
+
+    if not needs_embedding:
+        return
+
+    # Install mlx-openai-server — use --no-build-package to avoid Rust compiler requirement for outlines-core
+    result = ssh_run(
+        node.user, node.ip,
+        "uv tool install --force mlx-openai-server --with 'httpx[socks]' --no-build-package outlines-core",
+        timeout=240, shell=node.shell,
+    )
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        print(f"  Warning: mlx-openai-server install failed: {stderr or 'unknown error'} (continuing)")
     else:
-        print("  mlx-lm + mlx-openai-server installed")
+        print("  mlx-openai-server installed")
 
 
 def deploy_node(
@@ -279,7 +295,9 @@ def deploy_node(
     else:
         print("  Cleaned up legacy vllm-mlx services")
 
-    install_node_tools(node)
+    embedding_modes = {ServingMode.EMBEDDING, ServingMode.MLX_OPENAI_SERVER}
+    needs_embedding = any(config.models[s.model].serving in embedding_modes for s in slots)
+    install_node_tools(node, needs_embedding=needs_embedding)
 
     deployed_ports: set[int] = set()
 
@@ -372,6 +390,153 @@ def health_poll(ip: str, port: int, *, timeout_secs: int = 180, interval: int = 
             time.sleep(interval)
 
     return False
+
+
+def _get_node_uid(node: Node) -> str | None:
+    """Get the UID for a node. Returns None on failure."""
+    result = ssh_run(node.user, node.ip, "id -u", shell=node.shell)
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def restart_node_services(node_name: str, config: ClusterConfig) -> list[str]:
+    """Restart all launchd services on a node via kickstart."""
+    errors: list[str] = []
+    node = config.nodes[node_name]
+    slots = config.assignments.get(node_name, [])
+    if not slots:
+        return [f"{node_name}: no assignments found"]
+    uid = _get_node_uid(node)
+    if not uid:
+        return [f"{node_name}: failed to get UID"]
+    for slot in slots:
+        label = f"com.mlx-lm-{slot.port}"
+        result = ssh_run(node.user, node.ip, f"launchctl kickstart -kp gui/{uid}/{label}", shell=node.shell)
+        if result.returncode != 0:
+            errors.append(f"{node_name}:{slot.port} ({slot.model}) — restart failed")
+        else:
+            print(f"  restarted {node_name}:{slot.port} ({slot.model})")
+    return errors
+
+
+def stop_node_services(node_name: str, config: ClusterConfig) -> list[str]:
+    """Stop all launchd services on a node via bootout."""
+    errors: list[str] = []
+    node = config.nodes[node_name]
+    slots = config.assignments.get(node_name, [])
+    if not slots:
+        return [f"{node_name}: no assignments found"]
+    uid = _get_node_uid(node)
+    if not uid:
+        return [f"{node_name}: failed to get UID"]
+    for slot in slots:
+        label = f"com.mlx-lm-{slot.port}"
+        result = ssh_run(node.user, node.ip, f"launchctl bootout gui/{uid}/{label} 2>/dev/null", shell=node.shell)
+        if result.returncode != 0:
+            # bootout returns non-zero if service wasn't loaded — not necessarily an error
+            print(f"  {node_name}:{slot.port} ({slot.model}) — already stopped or not loaded")
+        else:
+            print(f"  stopped {node_name}:{slot.port} ({slot.model})")
+    return errors
+
+
+def stop_litellm(config: ClusterConfig) -> bool:
+    """Stop the LiteLLM proxy container."""
+    from thunder_forge.cluster.config import find_repo_root
+
+    gw = config.gateway
+    docker_dir = find_repo_root() / "docker"
+    result = ssh_run(
+        gw.user, gw.ip, f"cd {docker_dir} && docker compose stop litellm", timeout=60, shell=gw.shell,
+    )
+    return result.returncode == 0
+
+
+def run_restart(config: ClusterConfig, *, target_node: str | None = None, skip_gateway: bool = False) -> bool:
+    """Restart inference services and optionally the LiteLLM proxy."""
+    if target_node:
+        if target_node not in config.assignments:
+            print(f"Node '{target_node}' not found in assignments")
+            return False
+        nodes = [target_node]
+    else:
+        nodes = [n for n in config.assignments if config.nodes[n].role == NodeRole.NODE]
+
+    all_ok = True
+    print("Restarting node services...")
+    with ThreadPoolExecutor(max_workers=max(1, len(nodes))) as pool:
+        futures = {pool.submit(restart_node_services, n, config): n for n in nodes}
+        for future in as_completed(futures):
+            node_name = futures[future]
+            errors = future.result()
+            if errors:
+                all_ok = False
+                for err in errors:
+                    print(f"  {err}")
+
+    if not skip_gateway:
+        print("\nRestarting LiteLLM...")
+        if restart_litellm(config):
+            print("  LiteLLM restarted")
+        else:
+            print("  LiteLLM restart failed")
+            all_ok = False
+
+    # Health poll
+    print("\nWaiting for services to become healthy...")
+    poll_tasks = []
+    for node_name in nodes:
+        node = config.nodes[node_name]
+        for slot in config.assignments[node_name]:
+            poll_tasks.append((node_name, node.ip, slot))
+    if poll_tasks:
+        with ThreadPoolExecutor(max_workers=len(poll_tasks)) as pool:
+            futures = {
+                pool.submit(health_poll, ip, slot.port): (node_name, slot)
+                for node_name, ip, slot in poll_tasks
+            }
+            for future in as_completed(futures):
+                node_name, slot = futures[future]
+                healthy = future.result()
+                status = "healthy" if healthy else "TIMEOUT"
+                print(f"  {status} — {node_name}:{slot.port} ({slot.model})")
+                if not healthy:
+                    all_ok = False
+
+    return all_ok
+
+
+def run_stop(config: ClusterConfig, *, target_node: str | None = None, skip_gateway: bool = False) -> bool:
+    """Stop inference services and optionally the LiteLLM proxy."""
+    if target_node:
+        if target_node not in config.assignments:
+            print(f"Node '{target_node}' not found in assignments")
+            return False
+        nodes = [target_node]
+    else:
+        nodes = [n for n in config.assignments if config.nodes[n].role == NodeRole.NODE]
+
+    all_ok = True
+    print("Stopping node services...")
+    with ThreadPoolExecutor(max_workers=max(1, len(nodes))) as pool:
+        futures = {pool.submit(stop_node_services, n, config): n for n in nodes}
+        for future in as_completed(futures):
+            errors = future.result()
+            if errors:
+                all_ok = False
+                for err in errors:
+                    print(f"  {err}")
+
+    if not skip_gateway:
+        print("\nStopping LiteLLM...")
+        if stop_litellm(config):
+            print("  LiteLLM stopped")
+        else:
+            print("  LiteLLM stop failed")
+            all_ok = False
+
+    return all_ok
 
 
 def run_deploy(config: ClusterConfig, *, target_node: str | None = None, dry_run: bool = False) -> bool:
