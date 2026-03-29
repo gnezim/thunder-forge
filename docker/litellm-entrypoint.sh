@@ -13,7 +13,17 @@
 # Remove this patch when LiteLLM fixes the bug upstream.
 
 PATCH_FILE="/usr/local/lib/python3.12/site-packages/litellm/llms/anthropic/experimental_pass_through/adapters/transformation.py"
-LITELLM_VERSION=$(python -c "import litellm; print(litellm.version)" 2>/dev/null || echo "unknown")
+LITELLM_VERSION=$(python -c "
+try:
+    import litellm
+    v = getattr(litellm, '__version__', None) or getattr(litellm, 'version', None)
+    if v: print(v)
+    else:
+        from importlib.metadata import version
+        print(version('litellm'))
+except Exception:
+    print('unknown')
+" 2>/dev/null)
 
 # Only patch versions known to be affected (1.82.x)
 case "$LITELLM_VERSION" in
