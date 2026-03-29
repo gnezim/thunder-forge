@@ -11,6 +11,7 @@ help:
 	@echo "  setup-gateway   Bootstrap this machine as gateway node"
 	@echo "  setup-node      Bootstrap this machine as compute node"
 	@echo "  check           Verify gateway setup and service health"
+	@echo "  check-docker    Test Docker network connectivity to PyPI"
 
 up:
 	$(COMPOSE) up -d --build
@@ -36,5 +37,14 @@ setup-node:
 check:
 	zsh scripts/setup-node.sh gateway --check
 
-.PHONY: help up down restart ps logs setup-gateway setup-node check
+check-docker:
+	@echo "==> Testing DNS resolution..."
+	@docker run --rm python:3.12-slim python -c "import socket; ip = socket.getaddrinfo('pypi.org', 443)[0][4][0]; print(f'  pypi.org -> {ip}')" || echo "  FAIL: DNS resolution failed"
+	@echo "==> Testing HTTPS connectivity to PyPI..."
+	@docker run --rm python:3.12-slim pip install --dry-run hatchling 2>&1 | tail -5
+	@echo "==> Testing with host network..."
+	@docker run --rm --network=host python:3.12-slim pip install --dry-run hatchling 2>&1 | tail -5
+	@echo "==> Done. If default network failed but host network worked, add 'network_mode: host' to docker-compose build or fix Docker DNS."
+
+.PHONY: help up down restart ps logs setup-gateway setup-node check check-docker
 .DEFAULT_GOAL := help

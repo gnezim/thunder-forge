@@ -7,9 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 COPY admin/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+RUN pip install --no-cache-dir hatchling
+
 COPY pyproject.toml /app/pyproject.toml
 COPY src/ /app/src/
-RUN pip install --no-cache-dir /app
+RUN pip install --no-cache-dir --no-build-isolation /app
 
 COPY admin/thunder_admin/ /app/thunder_admin/
 COPY admin/.streamlit/ /app/.streamlit/
