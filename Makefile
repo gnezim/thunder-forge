@@ -42,10 +42,12 @@ check:
 	zsh scripts/setup-node.sh gateway --check
 
 check-docker:
+	@echo "==> Proxy config inside container..."
+	@docker run --rm python:3.12-slim env | grep -iE '^(https?_proxy|no_proxy)=' || echo "  (none — if behind a proxy, configure ~/.docker/config.json proxies)"
 	@echo "==> Testing DNS resolution..."
 	@docker run --rm python:3.12-slim python -c "import socket; ip = socket.getaddrinfo('pypi.org', 443)[0][4][0]; print(f'  pypi.org -> {ip}')" || echo "  FAIL: DNS resolution failed"
-	@echo "==> Testing HTTPS connectivity to PyPI..."
-	@docker run --rm python:3.12-slim pip install --dry-run hatchling 2>&1 | tail -5
+	@echo "==> Testing HTTPS connectivity to PyPI (timeout 30s)..."
+	@docker run --rm python:3.12-slim pip install --dry-run --timeout 30 hatchling 2>&1 | tail -5
 	@echo "==> Done. If DNS or HTTPS failed, check Docker DNS config (daemon.json) or firewall/VPN settings."
 
 .PHONY: help up down restart ps logs config setup-gateway setup-node check check-docker
