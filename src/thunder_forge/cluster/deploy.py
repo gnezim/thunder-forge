@@ -231,7 +231,9 @@ def install_node_tools(node: Node, *, needs_embedding: bool = False) -> None:
 
     # Install mlx-lm
     result = ssh_run(
-        node.user, node.ip, "uv tool install --force mlx-lm --with 'httpx[socks]'", timeout=240, shell=node.shell
+        node.user, node.ip,
+        "uv tool install --force --python 3.13 mlx-lm --with 'httpx[socks]'",
+        timeout=240, shell=node.shell,
     )
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
@@ -242,10 +244,10 @@ def install_node_tools(node: Node, *, needs_embedding: bool = False) -> None:
     if not needs_embedding:
         return
 
-    # Install mlx-openai-server — use --no-build-package to avoid Rust compiler requirement for outlines-core
+    # Install mlx-openai-server
     result = ssh_run(
         node.user, node.ip,
-        "uv tool install --force mlx-openai-server --with 'httpx[socks]' --no-build-package outlines-core",
+        "uv tool install --force --python 3.13 mlx-openai-server --with 'httpx[socks]'",
         timeout=240, shell=node.shell,
     )
     if result.returncode != 0:
