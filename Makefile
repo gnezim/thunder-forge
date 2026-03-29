@@ -10,6 +10,7 @@ help:
 	@echo "  logs            Show logs (optional: s=<service>)"
 	@echo "  setup-gateway   Bootstrap this machine as gateway node"
 	@echo "  setup-node      Bootstrap this machine as compute node"
+	@echo "  config          Regenerate LiteLLM config from node-assignments.yaml"
 	@echo "  check           Verify gateway setup and service health"
 	@echo "  check-docker    Test Docker network connectivity to PyPI"
 
@@ -34,6 +35,9 @@ setup-gateway:
 setup-node:
 	zsh scripts/setup-node.sh node
 
+config:
+	uv run thunder-forge generate-config
+
 check:
 	zsh scripts/setup-node.sh gateway --check
 
@@ -44,5 +48,5 @@ check-docker:
 	@docker run --rm python:3.12-slim pip install --dry-run hatchling 2>&1 | tail -5
 	@echo "==> Done. If DNS or HTTPS failed, check Docker DNS config (daemon.json) or firewall/VPN settings."
 
-.PHONY: help up down restart ps logs setup-gateway setup-node check check-docker
+.PHONY: help up down restart ps logs config setup-gateway setup-node check check-docker
 .DEFAULT_GOAL := help
