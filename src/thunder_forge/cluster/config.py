@@ -16,6 +16,7 @@ class ServingMode(StrEnum):
     CHAT = "chat"
     EMBEDDING = "embedding"
     CLI = "cli"
+    MLX_OPENAI_SERVER = "mlx-openai-server"
 
 
 class NodeRole(StrEnum):
