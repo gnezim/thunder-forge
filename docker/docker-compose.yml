@@ -30,7 +30,10 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ../configs/litellm-config.yaml:/app/config.yaml:ro
+      - ./litellm-entrypoint.sh:/litellm-entrypoint.sh:ro
+    entrypoint: ["/litellm-entrypoint.sh"]
     command:
+      - "litellm"
       - "--config"
       - "/app/config.yaml"
       - "--port"
