@@ -255,6 +255,7 @@ def test_generate_litellm_config_basic(assignments_yaml: Path) -> None:
     assert entry["litellm_params"]["max_input_tokens"] == 131072
     assert entry["litellm_params"]["max_output_tokens"] == 16384
     assert parsed["litellm_settings"]["callbacks"] == ["prometheus"]
+    assert parsed["litellm_settings"]["use_chat_completions_url_for_anthropic_messages"] is True
     assert parsed["router_settings"]["routing_strategy"] == "least-busy"
     assert parsed["general_settings"]["master_key"] == "os.environ/LITELLM_MASTER_KEY"
 

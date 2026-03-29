@@ -494,6 +494,7 @@ def generate_litellm_config(config: ClusterConfig) -> str:
             "timeout": 120,
             "allowed_fails": 3,
             "cooldown_time": 30,
+            "use_chat_completions_url_for_anthropic_messages": True,
             "callbacks": ["prometheus"],
         },
         "router_settings": {
