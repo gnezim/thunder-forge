@@ -25,9 +25,9 @@ except Exception:
     print('unknown')
 " 2>/dev/null)
 
-# Only patch versions known to be affected (1.82.x)
+# Patch versions known to be affected (1.81.x, 1.82.x)
 case "$LITELLM_VERSION" in
-  1.82.*)
+  1.81.*|1.82.*)
     if [ -f "$PATCH_FILE" ]; then
       if grep -q 'if choice.delta.tool_calls is not None:' "$PATCH_FILE"; then
         sed -i 's/if choice.delta.tool_calls is not None:/if choice.delta.tool_calls is not None and len(choice.delta.tool_calls) > 0:/' "$PATCH_FILE"
