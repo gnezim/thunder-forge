@@ -644,6 +644,48 @@ def stop_node_services(node_name: str, config: ClusterConfig) -> list[str]:
     return errors
 
 
+def restart_vector(node_name: str, config: ClusterConfig) -> str | None:
+    """Restart the Vector agent on a node. Returns an error string or None on success."""
+    node = config.nodes[node_name]
+    uid_result = ssh_run(node.user, node.ip, "id -u", shell=node.shell)
+    if uid_result.returncode != 0:
+        return f"{node_name}: failed to get UID"
+    uid = uid_result.stdout.strip()
+    plist_path = "~/Library/LaunchAgents/com.vector.plist"
+    ssh_run(node.user, node.ip, f"launchctl bootout gui/{uid}/com.vector 2>/dev/null", timeout=30, shell=node.shell)
+    _kill_process_by_name(node, "vector")
+    result = ssh_run(node.user, node.ip, f"launchctl bootstrap gui/{uid} {plist_path}", timeout=30, shell=node.shell)
+    if result.returncode != 0:
+        return f"{node_name}: Vector restart failed — {(result.stderr or '').strip()}"
+    return None
+
+
+def stop_vector(node_name: str, config: ClusterConfig) -> str | None:
+    """Stop the Vector agent on a node. Returns an error string or None on success."""
+    node = config.nodes[node_name]
+    uid_result = ssh_run(node.user, node.ip, "id -u", shell=node.shell)
+    if uid_result.returncode != 0:
+        return f"{node_name}: failed to get UID"
+    uid = uid_result.stdout.strip()
+    ssh_run(node.user, node.ip, f"launchctl bootout gui/{uid}/com.vector 2>/dev/null", timeout=30, shell=node.shell)
+    _kill_process_by_name(node, "vector")
+    return None
+
+
+def start_vector(node_name: str, config: ClusterConfig) -> str | None:
+    """Start the Vector agent on a node. Returns an error string or None on success."""
+    node = config.nodes[node_name]
+    uid_result = ssh_run(node.user, node.ip, "id -u", shell=node.shell)
+    if uid_result.returncode != 0:
+        return f"{node_name}: failed to get UID"
+    uid = uid_result.stdout.strip()
+    plist_path = "~/Library/LaunchAgents/com.vector.plist"
+    result = ssh_run(node.user, node.ip, f"launchctl bootstrap gui/{uid} {plist_path}", timeout=30, shell=node.shell)
+    if result.returncode != 0:
+        return f"{node_name}: Vector start failed — {(result.stderr or '').strip()}"
+    return None
+
+
 def stop_litellm(config: ClusterConfig) -> bool:
     """Stop the LiteLLM proxy container."""
     from thunder_forge.cluster.config import find_repo_root
