@@ -538,3 +538,11 @@ def check_config_sync(config: ClusterConfig, committed_path: Path) -> bool:
         return False
     committed = committed_path.read_text()
     return generated == committed
+
+
+def load_config() -> tuple[ClusterConfig, Path]:
+    """Load cluster config from the default node-assignments.yaml. Returns (config, path)."""
+    root = find_repo_root()
+    config_path = root / "configs" / "node-assignments.yaml"
+    raw = yaml.safe_load(config_path.read_text())
+    return parse_cluster_config(raw), config_path
