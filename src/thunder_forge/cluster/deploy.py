@@ -374,7 +374,7 @@ def restart_litellm(config: ClusterConfig) -> bool:
     return result.returncode == 0
 
 
-def health_poll(ip: str, port: int, *, timeout_secs: int = 180, interval: int = 5) -> bool:
+def health_poll(ip: str, port: int, *, timeout_secs: int = 300, interval: int = 5) -> bool:
     import time
     import urllib.error
     import urllib.request
