@@ -349,7 +349,7 @@ def install_vector(node: Node, node_name: str, gateway_ip: str) -> None:
     result = ssh_run(
         node.user,
         node.ip,
-        "which vector >/dev/null 2>&1 || brew install vector",
+        "which vector >/dev/null 2>&1 || (brew tap vectordotdev/brew && brew install vectordotdev/brew/vector)",
         timeout=300,
         shell=node.shell,
     )
