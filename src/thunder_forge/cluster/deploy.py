@@ -229,38 +229,51 @@ NEWSYSLOG_CONF = """\
 """
 
 
-def _generate_vector_config(node_name: str, gateway_ip: str) -> str:
+def _generate_vector_config(node_name: str, gateway_ip: str, home: str) -> str:
     """Generate a Vector log-shipper config YAML that tails MLX log files and ships to VictoriaLogs."""
     return f"""\
+data_dir: "{home}/.local/share/vector"
+
 sources:
-  mlx_logs:
+  mlx_lm_stdout:
     type: file
     include:
-      - $HOME/logs/mlx-lm-*.log
-      - $HOME/logs/mlx-lm-*.err
-      - $HOME/logs/mlx-openai-server-*.log
-      - $HOME/logs/mlx-openai-server-*.err
+      - {home}/logs/mlx-lm-*.log
+    read_from: end
+
+  mlx_lm_stderr:
+    type: file
+    include:
+      - {home}/logs/mlx-lm-*.err
+    read_from: end
+
+  openai_server_stdout:
+    type: file
+    include:
+      - {home}/logs/mlx-openai-server-*.log
+    read_from: end
+
+  openai_server_stderr:
+    type: file
+    include:
+      - {home}/logs/mlx-openai-server-*.err
     read_from: end
 
 transforms:
   enrich:
     type: remap
-    inputs:
-      - mlx_logs
+    inputs: ["mlx_lm_stdout", "mlx_lm_stderr", "openai_server_stdout", "openai_server_stderr"]
     source: |
-      filename = get_env_var!("HOME") + "/logs/"
-      basename = replace(.file, filename, "")
       .host = "{node_name}"
-      if starts_with(basename, "mlx-openai-server-") {{
+      filename = string!(.file)
+      if contains(filename, "mlx-openai-server") {{
         .job = "mlx-openai-server"
-        rest = replace(basename, "mlx-openai-server-", "")
+        .port = replace!(replace!(filename, r'/.*mlx-openai-server-', ""), r'\\.(log|err)$', "")
       }} else {{
         .job = "mlx-lm"
-        rest = replace(basename, "mlx-lm-", "")
+        .port = replace!(replace!(filename, r'/.*mlx-lm-', ""), r'\\.(log|err)$', "")
       }}
-      port_ext = split(rest, ".")
-      .port = port_ext[0]
-      if ends_with(basename, ".err") {{
+      if contains(filename, ".err") {{
         .level = "error"
       }} else {{
         .level = "info"
@@ -269,12 +282,16 @@ transforms:
 sinks:
   victorialogs:
     type: elasticsearch
-    inputs:
-      - enrich
+    inputs: ["enrich"]
     endpoints:
       - "http://{gateway_ip}:9428/insert/elasticsearch/"
     mode: bulk
+    api_version: v8
+    healthcheck:
+      enabled: false
     query:
+      _msg_field: "message"
+      _time_field: "timestamp"
       _stream_fields: "host,job,level,port"
 """
 
@@ -359,8 +376,11 @@ def install_vector(node: Node, node_name: str, gateway_ip: str) -> None:
         return
     print(f"  [{node_name}] Vector installed")
 
+    # Ensure data and config directories exist
+    ssh_run(node.user, node.ip, "mkdir -p ~/.local/share/vector ~/.config/vector", timeout=10, shell=node.shell)
+
     # Push config to ~/.config/vector/vector.yaml via /tmp staging
-    vector_config = _generate_vector_config(node_name, gateway_ip)
+    vector_config = _generate_vector_config(node_name, gateway_ip, home)
     result = scp_content(node.user, node.ip, vector_config, "/tmp/vector.yaml", shell=node.shell)
     if result.returncode != 0:
         print(f"  [{node_name}] Warning: failed to upload Vector config (continuing)")
