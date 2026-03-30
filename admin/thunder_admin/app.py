@@ -20,6 +20,7 @@ PAGES = {
     "External Endpoints": "thunder_admin.pages.external_endpoints",
     "History": "thunder_admin.pages.history",
     "Deploy": "thunder_admin.pages.deploy",
+    "Services": "thunder_admin.pages.services",
     "Users": "thunder_admin.pages.users",
 }
 
