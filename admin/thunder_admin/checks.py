@@ -125,6 +125,34 @@ def check_service(ssh_conn: paramiko.SSHClient, node: Node, slot: Assignment) ->
         return ("error", str(e)[:120])
 
 
+def fetch_logs(node: Node, port: int, tail_lines: int = 100) -> dict[str, str]:
+    """Fetch recent stderr and stdout logs for a service via SSH.
+
+    Returns {"stderr": ..., "stdout": ...} with log content or error messages.
+    """
+    result = {"stderr": "", "stdout": ""}
+    try:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        pkey = _resolve_ssh_key()
+        client.connect(
+            hostname=node.ip,
+            username=node.user,
+            pkey=pkey,
+            timeout=_SSH_TIMEOUT,
+            look_for_keys=False,
+            allow_agent=False,
+        )
+        for key, suffix in [("stderr", "err"), ("stdout", "log")]:
+            path = f"~/logs/mlx-lm-{port}.{suffix}"
+            _, stdout, _ = client.exec_command(f"tail -n {tail_lines} {path} 2>&1", timeout=_SSH_TIMEOUT)
+            result[key] = stdout.read().decode()
+        client.close()
+    except Exception as e:
+        result["stderr"] = f"Failed to fetch logs: {e}"
+    return result
+
+
 def check_port(node: Node, slot: Assignment) -> CheckResult:
     """HTTP GET /v1/models with 3s timeout."""
     url = f"http://{node.ip}:{slot.port}/v1/models"
