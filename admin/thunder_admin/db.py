@@ -209,3 +209,61 @@ def update_user_timezone(user_id: int, timezone: str | None) -> None:
 def delete_user(user_id: int) -> None:
     with get_cursor() as cur:
         cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+
+
+# --- Service Operations ---
+
+
+def get_running_service_op() -> dict | None:
+    with get_cursor() as cur:
+        cur.execute(
+            "SELECT so.*, u.username AS triggered_by_name FROM service_operations so "
+            "LEFT JOIN users u ON so.triggered_by = u.id "
+            "WHERE so.status = 'running' ORDER BY so.id DESC LIMIT 1"
+        )
+        return cur.fetchone()
+
+
+def create_service_op(op_type: str, user_id: int, target_node: str | None, skip_gateway: bool) -> int | None:
+    """Create a service operation atomically (fails if one is already running)."""
+    with get_cursor() as cur:
+        cur.execute(
+            "INSERT INTO service_operations (op_type, target_node, skip_gateway, triggered_by, status) "
+            "SELECT %s, %s, %s, %s, 'running' "
+            "WHERE NOT EXISTS (SELECT 1 FROM service_operations WHERE status = 'running') "
+            "RETURNING id",
+            (op_type, target_node, skip_gateway, user_id),
+        )
+        row = cur.fetchone()
+        return row["id"] if row else None
+
+
+def update_service_op(op_id: int, **kwargs: Any) -> None:
+    if not kwargs:
+        return
+    sets = ", ".join(f"{k} = %s" for k in kwargs)
+    vals = list(kwargs.values()) + [op_id]
+    with get_cursor() as cur:
+        cur.execute(f"UPDATE service_operations SET {sets} WHERE id = %s", vals)  # noqa: S608
+
+
+def get_service_op(op_id: int) -> dict | None:
+    with get_cursor() as cur:
+        cur.execute(
+            "SELECT so.*, u.username AS triggered_by_name FROM service_operations so "
+            "LEFT JOIN users u ON so.triggered_by = u.id "
+            "WHERE so.id = %s",
+            (op_id,),
+        )
+        return cur.fetchone()
+
+
+def list_service_ops(limit: int = 20) -> list[dict]:
+    with get_cursor() as cur:
+        cur.execute(
+            "SELECT so.*, u.username AS triggered_by_name FROM service_operations so "
+            "LEFT JOIN users u ON so.triggered_by = u.id "
+            "ORDER BY so.id DESC LIMIT %s",
+            (limit,),
+        )
+        return cur.fetchall()

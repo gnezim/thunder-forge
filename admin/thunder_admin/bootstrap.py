@@ -37,6 +37,18 @@ CREATE TABLE IF NOT EXISTS deploys (
 );
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT;
+
+CREATE TABLE IF NOT EXISTS service_operations (
+    id            SERIAL PRIMARY KEY,
+    op_type       TEXT NOT NULL,
+    target_node   TEXT,
+    skip_gateway  BOOLEAN DEFAULT FALSE,
+    triggered_by  INTEGER REFERENCES users(id),
+    status        TEXT NOT NULL DEFAULT 'running',
+    output        TEXT,
+    started_at    TIMESTAMPTZ DEFAULT now(),
+    finished_at   TIMESTAMPTZ
+);
 """
 
 

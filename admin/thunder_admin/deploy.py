@@ -168,6 +168,74 @@ def run_deploy_ssh(deploy_id: int, config_yaml: str) -> None:
         db.update_deploy(deploy_id, status="failed", output=f"SSH error: {e}", finished_at=datetime.now(UTC))
 
 
+def run_service_op_ssh(op_id: int, op_type: str, target_node: str | None, skip_gateway: bool) -> None:
+    """Run a service operation (restart/stop) via SSH in a background thread."""
+    tf_dir = os.environ["THUNDER_FORGE_DIR"]
+
+    try:
+        client = _get_ssh_client()
+
+        command = (
+            f"cd {tf_dir} && "
+            f"set -a && [ -f .env ] && . ./.env && set +a && "
+            f"~/.local/bin/uv run thunder-forge {op_type} --skip-preflight"
+        )
+        if target_node:
+            command += f" --node {target_node}"
+        if skip_gateway:
+            command += " --skip-gateway"
+
+        channel = client.get_transport().open_session()
+        channel.exec_command(command)
+
+        output_parts: list[str] = []
+        while not channel.exit_status_ready() or channel.recv_ready() or channel.recv_stderr_ready():
+            if channel.recv_ready():
+                chunk = channel.recv(4096).decode(errors="replace")
+                output_parts.append(chunk)
+                db.update_service_op(op_id, output="".join(output_parts))
+            if channel.recv_stderr_ready():
+                chunk = channel.recv_stderr(4096).decode(errors="replace")
+                output_parts.append(chunk)
+                db.update_service_op(op_id, output="".join(output_parts))
+            time.sleep(0.5)
+
+        while channel.recv_ready():
+            output_parts.append(channel.recv(4096).decode(errors="replace"))
+        while channel.recv_stderr_ready():
+            output_parts.append(channel.recv_stderr(4096).decode(errors="replace"))
+
+        exit_code = channel.recv_exit_status()
+        final_output = "".join(output_parts)
+        status = "success" if exit_code == 0 else "failed"
+
+        db.update_service_op(op_id, status=status, output=final_output, finished_at=datetime.now(UTC))
+        channel.close()
+        client.close()
+
+    except Exception as e:
+        db.update_service_op(op_id, status="failed", output=f"SSH error: {e}", finished_at=datetime.now(UTC))
+
+
+def start_service_op(
+    op_type: str, user_id: int, target_node: str | None = None, skip_gateway: bool = False,
+) -> tuple[int | None, str]:
+    """Start a service operation. Returns (op_id, error_message)."""
+    running = db.get_running_service_op()
+    if running:
+        return None, f"Operation already in progress (started by {running.get('triggered_by_name', '?')})"
+
+    op_id = db.create_service_op(op_type, user_id, target_node, skip_gateway)
+    if op_id is None:
+        return None, "Operation already in progress"
+
+    thread = threading.Thread(
+        target=run_service_op_ssh, args=(op_id, op_type, target_node, skip_gateway), daemon=True,
+    )
+    thread.start()
+    return op_id, ""
+
+
 def start_deploy(config_id: int, user_id: int, config_yaml: str) -> tuple[int | None, str]:
     """Start a deploy. Returns (deploy_id, error_message)."""
     running = db.get_running_deploy()
