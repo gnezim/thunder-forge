@@ -247,7 +247,7 @@ def install_node_tools(node: Node, *, needs_embedding: bool = False) -> None:
     # Install mlx-openai-server
     result = ssh_run(
         node.user, node.ip,
-        "uv tool install --force --python 3.13 mlx-openai-server --with 'httpx[socks]'",
+        "uv tool install --force --python 3.12 mlx-openai-server --with 'httpx[socks]'",
         timeout=240, shell=node.shell,
     )
     if result.returncode != 0:
@@ -319,11 +319,11 @@ def deploy_node(
         plist_path = f"~/Library/LaunchAgents/{plist_name}"
 
         # Try kickstart first (works if service is already registered — just restarts it)
-        result = ssh_run(node.user, node.ip, f"launchctl kickstart -kp {domain}/{label}", shell=node.shell)
+        result = ssh_run(node.user, node.ip, f"launchctl kickstart -kp {domain}/{label}", timeout=90, shell=node.shell)
         if result.returncode != 0:
             # Service not registered yet — bootout (cleanup) + sleep + bootstrap (register fresh)
             cmd = f"launchctl bootout {domain}/{label} 2>/dev/null; sleep 2; launchctl bootstrap {domain} {plist_path}"
-            result = ssh_run(node.user, node.ip, cmd, shell=node.shell)
+            result = ssh_run(node.user, node.ip, cmd, timeout=90, shell=node.shell)
             if result.returncode != 0:
                 err = (result.stderr or "").strip() + " " + (result.stdout or "").strip()
                 errors.append(
