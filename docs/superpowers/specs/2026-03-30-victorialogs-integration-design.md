@@ -114,7 +114,7 @@ Vector runs independently of model services. It's installed once and tails whate
 
 ### `stop_node_services()` / `restart_node_services()`
 
-Vector is NOT stopped/restarted with model services — it should run continuously. Only `thunder-forge deploy` manages its lifecycle.
+Vector is NOT stopped/restarted with model services — it should run continuously. It has its own start/stop/restart controls in the admin UI (see below).
 
 ## Docker Compose Addition
 
@@ -149,6 +149,15 @@ Add a link to `http://<gateway-ip>:9428/select/vmui/` alongside the existing Ope
 ### Services page — keep SSH log viewer
 
 The existing SSH-based log viewer stays as a fallback for when VictoriaLogs is not running or Vector hasn't shipped logs yet.
+
+### Services page — Vector controls per node
+
+Add a "Vector" section per node with:
+- **Status indicator** — check if `com.vector` launchd service is running (same pattern as `check_service` in `checks.py`)
+- **Start / Stop / Restart buttons** — manage the `com.vector` launchd service via SSH (`launchctl bootstrap`/`bootout`/`kickstart`)
+- **View Logs** — fetch Vector's own logs. Vector logs to stdout/stderr by default; configure the plist to write to `~/logs/vector.log` and `~/logs/vector.err`, then use the same `fetch_logs` function with a `vector` log path pattern.
+
+Vector controls are separate from the model service controls (Restart All / Stop All do NOT affect Vector).
 
 ## Labels
 
