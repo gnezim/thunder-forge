@@ -283,7 +283,7 @@ def _generate_vector_plist(home: str, homebrew_prefix: str | None = None) -> str
     """Generate a launchd plist XML string for the Vector log-shipper agent."""
     prefix = homebrew_prefix or f"{home}/.homebrew"
     label = "com.vector"
-    program_args = [f"{prefix}/bin/vector", "--config", "/etc/vector/vector.yaml"]
+    program_args = [f"{prefix}/bin/vector", "--config", f"{home}/.config/vector/vector.yaml"]
 
     plist = ET.Element("plist", version="1.0")
     d = ET.SubElement(plist, "dict")
@@ -359,7 +359,7 @@ def install_vector(node: Node, node_name: str, gateway_ip: str) -> None:
         return
     print(f"  [{node_name}] Vector installed")
 
-    # Push config to /etc/vector/vector.yaml via /tmp staging
+    # Push config to ~/.config/vector/vector.yaml via /tmp staging
     vector_config = _generate_vector_config(node_name, gateway_ip)
     result = scp_content(node.user, node.ip, vector_config, "/tmp/vector.yaml", shell=node.shell)
     if result.returncode != 0:
@@ -368,11 +368,11 @@ def install_vector(node: Node, node_name: str, gateway_ip: str) -> None:
     result = ssh_run(
         node.user,
         node.ip,
-        "sudo mkdir -p /etc/vector && sudo mv /tmp/vector.yaml /etc/vector/vector.yaml",
+        "mkdir -p ~/.config/vector && mv /tmp/vector.yaml ~/.config/vector/vector.yaml",
         shell=node.shell,
     )
     if result.returncode != 0:
-        print(f"  [{node_name}] Warning: failed to install Vector config to /etc/vector/ (continuing)")
+        print(f"  [{node_name}] Warning: failed to install Vector config (continuing)")
         return
     print(f"  [{node_name}] Vector config installed")
 
