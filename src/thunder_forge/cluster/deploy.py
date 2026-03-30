@@ -403,7 +403,7 @@ def _get_node_uid(node: Node) -> str | None:
 
 
 def restart_node_services(node_name: str, config: ClusterConfig) -> list[str]:
-    """Restart all launchd services on a node via kickstart."""
+    """Restart all launchd services on a node: stop, wait for port release, then start."""
     errors: list[str] = []
     node = config.nodes[node_name]
     slots = config.assignments.get(node_name, [])
@@ -414,7 +414,14 @@ def restart_node_services(node_name: str, config: ClusterConfig) -> list[str]:
         return [f"{node_name}: failed to get UID"]
     for slot in slots:
         label = f"com.mlx-lm-{slot.port}"
-        result = ssh_run(node.user, node.ip, f"launchctl kickstart -kp gui/{uid}/{label}", shell=node.shell)
+        # Stop the service and ensure port is free before restarting
+        ssh_run(node.user, node.ip, f"launchctl bootout gui/{uid}/{label} 2>/dev/null", shell=node.shell)
+        _kill_port(node, slot.port)
+        plist_path = f"~/Library/LaunchAgents/{label}.plist"
+        result = ssh_run(
+            node.user, node.ip, f"launchctl bootstrap gui/{uid} {plist_path}",
+            timeout=90, shell=node.shell,
+        )
         if result.returncode != 0:
             errors.append(f"{node_name}:{slot.port} ({slot.model}) — restart failed")
         else:
@@ -422,8 +429,18 @@ def restart_node_services(node_name: str, config: ClusterConfig) -> list[str]:
     return errors
 
 
+def _kill_port(node: Node, port: int, *, timeout: int = 10) -> None:
+    """Kill any process holding a port and wait for it to be free."""
+    ssh_run(
+        node.user, node.ip,
+        f"lsof -ti :{port} | xargs kill -9 2>/dev/null; "
+        f"for i in $(seq 1 {timeout}); do lsof -ti :{port} >/dev/null 2>&1 || break; sleep 1; done",
+        timeout=timeout + 5, shell=node.shell,
+    )
+
+
 def stop_node_services(node_name: str, config: ClusterConfig) -> list[str]:
-    """Stop all launchd services on a node via bootout."""
+    """Stop all launchd services on a node via bootout, then kill any lingering processes."""
     errors: list[str] = []
     node = config.nodes[node_name]
     slots = config.assignments.get(node_name, [])
@@ -434,12 +451,9 @@ def stop_node_services(node_name: str, config: ClusterConfig) -> list[str]:
         return [f"{node_name}: failed to get UID"]
     for slot in slots:
         label = f"com.mlx-lm-{slot.port}"
-        result = ssh_run(node.user, node.ip, f"launchctl bootout gui/{uid}/{label} 2>/dev/null", shell=node.shell)
-        if result.returncode != 0:
-            # bootout returns non-zero if service wasn't loaded — not necessarily an error
-            print(f"  {node_name}:{slot.port} ({slot.model}) — already stopped or not loaded")
-        else:
-            print(f"  stopped {node_name}:{slot.port} ({slot.model})")
+        ssh_run(node.user, node.ip, f"launchctl bootout gui/{uid}/{label} 2>/dev/null", shell=node.shell)
+        _kill_port(node, slot.port)
+        print(f"  stopped {node_name}:{slot.port} ({slot.model})")
     return errors
 
 
