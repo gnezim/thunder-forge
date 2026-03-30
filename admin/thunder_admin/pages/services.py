@@ -92,27 +92,32 @@ def _render_op_buttons(user: dict, config: dict) -> None:
             for slot in slots:
                 port = slot.get("port", "?")
                 model_name = slot.get("model", "?")
-                btn_key = f"btn_logs_{node_name}_{port}"
                 data_key = f"data_logs_{node_name}_{port}"
-                if st.button(f"View Logs — {model_name}:{port}", key=btn_key, use_container_width=True):
-                    node_obj = cluster.nodes.get(node_name) if cluster else None
-                    if node_obj:
-                        resolved_user = node_obj.user or os.environ.get("GATEWAY_SSH_USER", "")
-                        resolved_node = Node(
-                            ip=node_obj.ip, ram_gb=node_obj.ram_gb, user=resolved_user, role=node_obj.role,
-                        )
-                        st.session_state[data_key] = fetch_logs(resolved_node, port)
-                    else:
-                        st.session_state[data_key] = {
-                            "stderr": f"Node {node_name} not found in config", "stdout": "",
-                        }
-                if data_key in st.session_state:
-                    logs = st.session_state[data_key]
-                    tab_err, tab_out = st.tabs(["stderr", "stdout"])
-                    with tab_err:
-                        st.code(logs["stderr"] or "(empty)", language="log")
-                    with tab_out:
-                        st.code(logs["stdout"] or "(empty)", language="log")
+                with st.expander(f"Logs — {model_name}:{port}"):
+                    lines = st.select_slider(
+                        "Lines", options=[100, 500, 1000, 5000], value=500,
+                        key=f"lines_{node_name}_{port}",
+                    )
+                    if st.button("Fetch Logs", key=f"btn_logs_{node_name}_{port}"):
+                        node_obj = cluster.nodes.get(node_name) if cluster else None
+                        if node_obj:
+                            resolved_user = node_obj.user or os.environ.get("GATEWAY_SSH_USER", "")
+                            resolved_node = Node(
+                                ip=node_obj.ip, ram_gb=node_obj.ram_gb,
+                                user=resolved_user, role=node_obj.role,
+                            )
+                            st.session_state[data_key] = fetch_logs(resolved_node, port, tail_lines=lines)
+                        else:
+                            st.session_state[data_key] = {
+                                "stderr": f"Node {node_name} not found in config", "stdout": "",
+                            }
+                    if data_key in st.session_state:
+                        logs = st.session_state[data_key]
+                        tab_err, tab_out = st.tabs(["stderr", "stdout"])
+                        with tab_err:
+                            st.code(logs["stderr"] or "(empty)", language="log")
+                        with tab_out:
+                            st.code(logs["stdout"] or "(empty)", language="log")
 
 
 def render(user: dict):
