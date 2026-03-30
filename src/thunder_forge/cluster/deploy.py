@@ -240,24 +240,32 @@ sources:
     include:
       - {home}/logs/mlx-lm-*.log
     read_from: end
+    fingerprint:
+      strategy: device_and_inode
 
   mlx_lm_stderr:
     type: file
     include:
       - {home}/logs/mlx-lm-*.err
     read_from: end
+    fingerprint:
+      strategy: device_and_inode
 
   openai_server_stdout:
     type: file
     include:
       - {home}/logs/mlx-openai-server-*.log
     read_from: end
+    fingerprint:
+      strategy: device_and_inode
 
   openai_server_stderr:
     type: file
     include:
       - {home}/logs/mlx-openai-server-*.err
     read_from: end
+    fingerprint:
+      strategy: device_and_inode
 
 transforms:
   enrich:
