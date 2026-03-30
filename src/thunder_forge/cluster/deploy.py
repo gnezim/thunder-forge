@@ -125,11 +125,16 @@ def _build_embedding_args(model: Model, slot: Assignment, home: str) -> list[str
     """Build ProgramArguments for mlx-openai-server (embedding models)."""
     server_path = f"{home}/.local/bin/mlx-openai-server"
     args = [
-        server_path, "launch",
-        "--model-type", "embeddings",
-        "--model-path", model.source.repo,
-        "--port", str(slot.port),
-        "--host", "0.0.0.0",
+        server_path,
+        "launch",
+        "--model-type",
+        "embeddings",
+        "--model-path",
+        model.source.repo,
+        "--port",
+        str(slot.port),
+        "--host",
+        "0.0.0.0",
         "--no-log-file",
     ]
     if model.extra_args:
@@ -224,6 +229,178 @@ NEWSYSLOG_CONF = """\
 """
 
 
+def _generate_vector_config(node_name: str, gateway_ip: str) -> str:
+    """Generate a Vector log-shipper config YAML that tails MLX log files and ships to VictoriaLogs."""
+    return f"""\
+sources:
+  mlx_logs:
+    type: file
+    include:
+      - $HOME/logs/mlx-lm-*.log
+      - $HOME/logs/mlx-lm-*.err
+      - $HOME/logs/mlx-openai-server-*.log
+      - $HOME/logs/mlx-openai-server-*.err
+    read_from: end
+
+transforms:
+  enrich:
+    type: remap
+    inputs:
+      - mlx_logs
+    source: |
+      filename = get_env_var!("HOME") + "/logs/"
+      basename = replace(.file, filename, "")
+      .host = "{node_name}"
+      if starts_with(basename, "mlx-openai-server-") {{
+        .job = "mlx-openai-server"
+        rest = replace(basename, "mlx-openai-server-", "")
+      }} else {{
+        .job = "mlx-lm"
+        rest = replace(basename, "mlx-lm-", "")
+      }}
+      port_ext = split(rest, ".")
+      .port = port_ext[0]
+      if ends_with(basename, ".err") {{
+        .level = "error"
+      }} else {{
+        .level = "info"
+      }}
+
+sinks:
+  victorialogs:
+    type: elasticsearch
+    inputs:
+      - enrich
+    endpoints:
+      - "http://{gateway_ip}:9428/insert/elasticsearch/"
+    mode: bulk
+    query:
+      _stream_fields: "host,job,level,port"
+"""
+
+
+def _generate_vector_plist(home: str, homebrew_prefix: str | None = None) -> str:
+    """Generate a launchd plist XML string for the Vector log-shipper agent."""
+    prefix = homebrew_prefix or f"{home}/.homebrew"
+    label = "com.vector"
+    program_args = [f"{prefix}/bin/vector", "--config", "/etc/vector/vector.yaml"]
+
+    plist = ET.Element("plist", version="1.0")
+    d = ET.SubElement(plist, "dict")
+
+    def add_key_value(parent: ET.Element, key: str, value_elem: ET.Element) -> None:
+        k = ET.SubElement(parent, "key")
+        k.text = key
+        parent.append(value_elem)
+
+    def make_string(text: str) -> ET.Element:
+        e = ET.Element("string")
+        e.text = text
+        return e
+
+    def make_true() -> ET.Element:
+        return ET.Element("true")
+
+    def make_integer(val: int) -> ET.Element:
+        e = ET.Element("integer")
+        e.text = str(val)
+        return e
+
+    add_key_value(d, "Label", make_string(label))
+
+    k = ET.SubElement(d, "key")
+    k.text = "ProgramArguments"
+    arr = ET.SubElement(d, "array")
+    for arg in program_args:
+        s = ET.SubElement(arr, "string")
+        s.text = arg
+
+    add_key_value(d, "StandardOutPath", make_string(f"{home}/logs/vector.log"))
+    add_key_value(d, "StandardErrorPath", make_string(f"{home}/logs/vector.err"))
+    add_key_value(d, "RunAtLoad", make_true())
+    add_key_value(d, "KeepAlive", make_true())
+    add_key_value(d, "ThrottleInterval", make_integer(10))
+
+    ET.indent(plist, space="  ")
+    xml_declaration = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    doctype = (
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"\n  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+    )
+    body = ET.tostring(plist, encoding="unicode")
+    return xml_declaration + doctype + body + "\n"
+
+
+def _kill_process_by_name(node: Node, process_name: str) -> None:
+    """Kill all processes matching process_name by name."""
+    ssh_run(
+        node.user,
+        node.ip,
+        f"pkill -9 -f {process_name} 2>/dev/null; sleep 1",
+        shell=node.shell,
+    )
+
+
+def install_vector(node: Node, node_name: str, gateway_ip: str) -> None:
+    """Install Vector log-shipper on a compute node and register it as a launchd agent."""
+    _require_resolved(node, node_name)
+    home = node.home_dir
+
+    print(f"  [{node_name}] installing Vector...")
+    result = ssh_run(
+        node.user,
+        node.ip,
+        "which vector >/dev/null 2>&1 || brew install vector",
+        timeout=300,
+        shell=node.shell,
+    )
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        print(f"  [{node_name}] Warning: Vector install failed: {stderr or 'unknown error'} (continuing)")
+        return
+    print(f"  [{node_name}] Vector installed")
+
+    # Push config to /etc/vector/vector.yaml via /tmp staging
+    vector_config = _generate_vector_config(node_name, gateway_ip)
+    result = scp_content(node.user, node.ip, vector_config, "/tmp/vector.yaml", shell=node.shell)
+    if result.returncode != 0:
+        print(f"  [{node_name}] Warning: failed to upload Vector config (continuing)")
+        return
+    result = ssh_run(
+        node.user,
+        node.ip,
+        "sudo mkdir -p /etc/vector && sudo mv /tmp/vector.yaml /etc/vector/vector.yaml",
+        shell=node.shell,
+    )
+    if result.returncode != 0:
+        print(f"  [{node_name}] Warning: failed to install Vector config to /etc/vector/ (continuing)")
+        return
+    print(f"  [{node_name}] Vector config installed")
+
+    # Push launchd plist
+    plist_xml = _generate_vector_plist(home, node.homebrew_prefix)
+    plist_path = "~/Library/LaunchAgents/com.vector.plist"
+    result = scp_content(node.user, node.ip, plist_xml, plist_path, shell=node.shell)
+    if result.returncode != 0:
+        print(f"  [{node_name}] Warning: failed to upload Vector plist (continuing)")
+        return
+
+    # Get UID, then bootout + kill + bootstrap
+    uid_result = ssh_run(node.user, node.ip, "id -u", shell=node.shell)
+    if uid_result.returncode != 0:
+        print(f"  [{node_name}] Warning: failed to get UID for Vector launchd registration (continuing)")
+        return
+    uid = uid_result.stdout.strip()
+
+    ssh_run(node.user, node.ip, f"launchctl bootout gui/{uid}/com.vector 2>/dev/null", timeout=30, shell=node.shell)
+    _kill_process_by_name(node, "vector")
+    result = ssh_run(node.user, node.ip, f"launchctl bootstrap gui/{uid} {plist_path}", timeout=30, shell=node.shell)
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip()
+        print(f"  [{node_name}] Warning: Vector launchd registration failed: {stderr or 'unknown error'} (continuing)")
+    else:
+        print(f"  [{node_name}] Vector agent registered")
+
+
 def install_node_tools(node: Node, *, needs_embedding: bool = False) -> None:
     """Install mlx-lm (always) and mlx-openai-server (only if node has embedding assignments)."""
     # Always remove legacy vllm-mlx first
@@ -231,9 +408,11 @@ def install_node_tools(node: Node, *, needs_embedding: bool = False) -> None:
 
     # Install mlx-lm
     result = ssh_run(
-        node.user, node.ip,
+        node.user,
+        node.ip,
         "uv tool install --force --python 3.13 mlx-lm --with 'httpx[socks]'",
-        timeout=240, shell=node.shell,
+        timeout=240,
+        shell=node.shell,
     )
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
@@ -246,9 +425,11 @@ def install_node_tools(node: Node, *, needs_embedding: bool = False) -> None:
 
     # Install mlx-openai-server
     result = ssh_run(
-        node.user, node.ip,
+        node.user,
+        node.ip,
         "uv tool install --force --python 3.12 mlx-openai-server --with 'httpx[socks]'",
-        timeout=240, shell=node.shell,
+        timeout=240,
+        shell=node.shell,
     )
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()
@@ -288,7 +469,7 @@ def deploy_node(
     legacy_cleanup = (
         f"for p in ~/Library/LaunchAgents/com.vllm-mlx-*.plist; do "
         f'[ -f "$p" ] && label=$(basename "$p" .plist) && '
-        f"launchctl bootout gui/{uid}/$label 2>/dev/null; rm -f \"$p\"; done; "
+        f'launchctl bootout gui/{uid}/$label 2>/dev/null; rm -f "$p"; done; '
         f"sudo rm -f /etc/newsyslog.d/vllm-mlx.conf"
     )
     legacy_result = ssh_run(node.user, node.ip, legacy_cleanup, shell=node.shell)
@@ -300,6 +481,7 @@ def deploy_node(
     embedding_modes = {ServingMode.EMBEDDING, ServingMode.MLX_OPENAI_SERVER}
     needs_embedding = any(config.models[s.model].serving in embedding_modes for s in slots)
     install_node_tools(node, needs_embedding=needs_embedding)
+    install_vector(node, node_name, config.gateway.ip)
 
     deployed_ports: set[int] = set()
 
@@ -419,8 +601,11 @@ def restart_node_services(node_name: str, config: ClusterConfig) -> list[str]:
         _kill_port(node, slot.port)
         plist_path = f"~/Library/LaunchAgents/{label}.plist"
         result = ssh_run(
-            node.user, node.ip, f"launchctl bootstrap gui/{uid} {plist_path}",
-            timeout=90, shell=node.shell,
+            node.user,
+            node.ip,
+            f"launchctl bootstrap gui/{uid} {plist_path}",
+            timeout=90,
+            shell=node.shell,
         )
         if result.returncode != 0:
             errors.append(f"{node_name}:{slot.port} ({slot.model}) — restart failed")
@@ -432,10 +617,12 @@ def restart_node_services(node_name: str, config: ClusterConfig) -> list[str]:
 def _kill_port(node: Node, port: int, *, timeout: int = 10) -> None:
     """Kill any process holding a port and wait for it to be free."""
     ssh_run(
-        node.user, node.ip,
+        node.user,
+        node.ip,
         f"lsof -ti :{port} | xargs kill -9 2>/dev/null; "
         f"for i in $(seq 1 {timeout}); do lsof -ti :{port} >/dev/null 2>&1 || break; sleep 1; done",
-        timeout=timeout + 5, shell=node.shell,
+        timeout=timeout + 5,
+        shell=node.shell,
     )
 
 
@@ -464,7 +651,11 @@ def stop_litellm(config: ClusterConfig) -> bool:
     gw = config.gateway
     docker_dir = find_repo_root() / "docker"
     result = ssh_run(
-        gw.user, gw.ip, f"cd {docker_dir} && docker compose stop litellm", timeout=60, shell=gw.shell,
+        gw.user,
+        gw.ip,
+        f"cd {docker_dir} && docker compose stop litellm",
+        timeout=60,
+        shell=gw.shell,
     )
     return result.returncode == 0
 
@@ -508,10 +699,7 @@ def run_restart(config: ClusterConfig, *, target_node: str | None = None, skip_g
             poll_tasks.append((node_name, node.ip, slot))
     if poll_tasks:
         with ThreadPoolExecutor(max_workers=len(poll_tasks)) as pool:
-            futures = {
-                pool.submit(health_poll, ip, slot.port): (node_name, slot)
-                for node_name, ip, slot in poll_tasks
-            }
+            futures = {pool.submit(health_poll, ip, slot.port): (node_name, slot) for node_name, ip, slot in poll_tasks}
             for future in as_completed(futures):
                 node_name, slot = futures[future]
                 healthy = future.result()
@@ -634,8 +822,7 @@ def run_deploy(config: ClusterConfig, *, target_node: str | None = None, dry_run
                     poll_tasks.append((node_name, node.ip, slot))
             with ThreadPoolExecutor(max_workers=len(poll_tasks)) as pool:
                 futures = {
-                    pool.submit(health_poll, ip, slot.port): (node_name, slot)
-                    for node_name, ip, slot in poll_tasks
+                    pool.submit(health_poll, ip, slot.port): (node_name, slot) for node_name, ip, slot in poll_tasks
                 }
                 for future in as_completed(futures):
                     node_name, slot = futures[future]
