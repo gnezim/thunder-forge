@@ -86,6 +86,9 @@ def generate_config(
 def ensure_models(
     dry_run: bool = typer.Option(False, "--dry-run", help="Print what would be downloaded without doing it."),
     skip_preflight: bool = typer.Option(False, "--skip-preflight", help="Skip pre-flight node checks."),
+    download_timeout: int = typer.Option(
+        7200, "--download-timeout", help="Timeout in seconds for each model download."
+    ),
 ) -> None:
     """Download and sync models to assigned nodes."""
     from thunder_forge.cluster.models import run_ensure_models
@@ -95,7 +98,7 @@ def ensure_models(
     if not skip_preflight:
         _run_preflight(config)
 
-    success = run_ensure_models(config, dry_run=dry_run)
+    success = run_ensure_models(config, dry_run=dry_run, download_timeout=download_timeout)
     raise typer.Exit(0 if success else 1)
 
 
@@ -105,6 +108,9 @@ def deploy(
     skip_models: bool = typer.Option(False, "--skip-models", help="Skip model download/sync step."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show deployment plan without executing."),
     skip_preflight: bool = typer.Option(False, "--skip-preflight", help="Skip pre-flight node checks."),
+    download_timeout: int = typer.Option(
+        7200, "--download-timeout", help="Timeout in seconds for each model download."
+    ),
 ) -> None:
     """Deploy models, plists, and configs to the cluster."""
     from thunder_forge.cluster.config import generate_litellm_config, validate_memory
@@ -119,7 +125,7 @@ def deploy(
 
     if not skip_models and not dry_run:
         typer.echo("Ensuring models are present...")
-        if not run_ensure_models(config, target_node=node):
+        if not run_ensure_models(config, target_node=node, download_timeout=download_timeout):
             typer.echo("Model sync failed", err=True)
             raise typer.Exit(1)
 
@@ -135,6 +141,42 @@ def deploy(
         typer.echo(f"  Generated {config_path}")
 
     success = run_deploy(config, target_node=node, dry_run=dry_run)
+    raise typer.Exit(0 if success else 1)
+
+
+@app.command()
+def restart(
+    node: str | None = typer.Option(None, "--node", help="Restart services on a single node (e.g. msm1)."),
+    skip_preflight: bool = typer.Option(False, "--skip-preflight", help="Skip pre-flight node checks."),
+    skip_gateway: bool = typer.Option(False, "--skip-gateway", help="Don't restart the LiteLLM proxy."),
+) -> None:
+    """Restart inference services and the LiteLLM proxy."""
+    from thunder_forge.cluster.deploy import run_restart
+
+    config, _ = _load_config()
+
+    if not skip_preflight:
+        _run_preflight(config, target_node=node)
+
+    success = run_restart(config, target_node=node, skip_gateway=skip_gateway)
+    raise typer.Exit(0 if success else 1)
+
+
+@app.command()
+def stop(
+    node: str | None = typer.Option(None, "--node", help="Stop services on a single node (e.g. msm1)."),
+    skip_preflight: bool = typer.Option(False, "--skip-preflight", help="Skip pre-flight node checks."),
+    skip_gateway: bool = typer.Option(False, "--skip-gateway", help="Don't stop the LiteLLM proxy."),
+) -> None:
+    """Stop inference services and the LiteLLM proxy."""
+    from thunder_forge.cluster.deploy import run_stop
+
+    config, _ = _load_config()
+
+    if not skip_preflight:
+        _run_preflight(config, target_node=node)
+
+    success = run_stop(config, target_node=node, skip_gateway=skip_gateway)
     raise typer.Exit(0 if success else 1)
 
 

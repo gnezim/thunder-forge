@@ -9,6 +9,10 @@ from dataclasses import dataclass, field
 from thunder_forge.cluster.config import ClusterConfig
 from thunder_forge.cluster.ssh import _is_local, _ssh_key_args, run_local, ssh_run
 
+# Default timeout (seconds) for individual HuggingFace HTTP requests.
+# Prevents hf download from hanging indefinitely on flaky connections.
+DEFAULT_HF_HTTP_TIMEOUT = 300
+
 
 def _rsync_ssh_cmd() -> str:
     """Build the SSH command string for rsync -e, including key if configured."""
@@ -22,6 +26,16 @@ HF_CACHE = os.environ.get("HF_HOME", "~/.cache/huggingface") + "/hub"
 DEFAULT_HF_CACHE = "~/.cache/huggingface/hub"
 # Full path to hf CLI — needed when running via SSH (no login shell, ~/.local/bin not in PATH)
 HF_BIN = "~/.local/bin/hf"
+
+
+def _hf_env_str() -> str:
+    """Build env prefix for hf download commands (HF_HOME, HF_TOKEN, HF_HUB_DOWNLOAD_TIMEOUT)."""
+    parts = [f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"]
+    if os.environ.get("HF_TOKEN"):
+        parts.append(f"HF_TOKEN={os.environ['HF_TOKEN']}")
+    timeout = os.environ.get("HF_HUB_DOWNLOAD_TIMEOUT", str(DEFAULT_HF_HTTP_TIMEOUT))
+    parts.append(f"HF_HUB_DOWNLOAD_TIMEOUT={timeout}")
+    return " ".join(parts)
 
 
 @dataclass
@@ -72,7 +86,9 @@ def _check_hf_cached(
     return result.returncode == 0
 
 
-def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False) -> list[str]:
+def ensure_huggingface(
+    task: ModelTask, config: ClusterConfig, *, dry_run: bool = False, download_timeout: int = 3600,
+) -> list[str]:
     errors: list[str] = []
     gw_name = config.gateway_name
     gw = config.gateway
@@ -86,12 +102,9 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
         print(f"  {task.repo} already cached on {gw_name}")
     else:
         print(f"  Downloading {task.repo} on {gw_name}...")
-        env_parts = [f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"]
-        if os.environ.get("HF_TOKEN"):
-            env_parts.append(f"HF_TOKEN={os.environ['HF_TOKEN']}")
-        hf_env = " ".join(env_parts)
+        hf_env = _hf_env_str()
         dl_cmd = f"{hf_env} {HF_BIN} download {task.repo} --revision {task.revision}"
-        result = ssh_run(gw.user, gw.ip, dl_cmd, timeout=3600, stream=True, shell=gw.shell)
+        result = ssh_run(gw.user, gw.ip, dl_cmd, timeout=download_timeout, stream=True, shell=gw.shell)
         if result.returncode != 0:
             errors.append(f"Download failed for {task.repo}: {(result.stderr or '').strip()}")
             return errors
@@ -130,7 +143,9 @@ def ensure_huggingface(task: ModelTask, config: ClusterConfig, *, dry_run: bool 
     return errors
 
 
-def ensure_convert(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False) -> list[str]:
+def ensure_convert(
+    task: ModelTask, config: ClusterConfig, *, dry_run: bool = False, download_timeout: int = 3600,
+) -> list[str]:
     errors: list[str] = []
     gw_name = config.gateway_name
     gw = config.gateway
@@ -140,11 +155,11 @@ def ensure_convert(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fa
             print(f"    [rsync] to {node_name}")
         return errors
     print(f"  Downloading source {task.repo} on {gw_name}...")
-    env_parts = [f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"]
-    if os.environ.get("HF_TOKEN"):
-        env_parts.append(f"HF_TOKEN={os.environ['HF_TOKEN']}")
-    hf_env = " ".join(env_parts)
-    dl_result = ssh_run(gw.user, gw.ip, f"{hf_env} {HF_BIN} download {task.repo}", timeout=3600, stream=True, shell=gw.shell)
+    hf_env = _hf_env_str()
+    dl_result = ssh_run(
+        gw.user, gw.ip, f"{hf_env} {HF_BIN} download {task.repo}",
+        timeout=download_timeout, stream=True, shell=gw.shell,
+    )
     if dl_result.returncode != 0:
         errors.append(f"Download failed for {task.repo}: {(dl_result.stderr or '').strip()}")
         return errors
@@ -195,7 +210,9 @@ def ensure_local(task: ModelTask, config: ClusterConfig, *, dry_run: bool = Fals
     return errors
 
 
-def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False) -> list[str]:
+def ensure_pip(
+    task: ModelTask, config: ClusterConfig, *, dry_run: bool = False, download_timeout: int = 3600,
+) -> list[str]:
     errors: list[str] = []
     gw_name = config.gateway_name
     gw = config.gateway
@@ -205,12 +222,9 @@ def ensure_pip(task: ModelTask, config: ClusterConfig, *, dry_run: bool = False)
             print(f"    [download] {task.weight_repo} on {gw_name}")
         else:
             print(f"  Downloading weights {task.weight_repo} on {gw_name}...")
-            env_parts = [f"HF_HOME={os.environ.get('HF_HOME', '~/.cache/huggingface')}"]
-            if os.environ.get("HF_TOKEN"):
-                env_parts.append(f"HF_TOKEN={os.environ['HF_TOKEN']}")
-            hf_env = " ".join(env_parts)
+            hf_env = _hf_env_str()
             dl_cmd = f"{hf_env} {HF_BIN} download {task.weight_repo}"
-            dl_result = ssh_run(gw.user, gw.ip, dl_cmd, timeout=3600, stream=True, shell=gw.shell)
+            dl_result = ssh_run(gw.user, gw.ip, dl_cmd, timeout=download_timeout, stream=True, shell=gw.shell)
             if dl_result.returncode != 0:
                 errors.append(f"Weight download failed for {task.weight_repo}: {(dl_result.stderr or '').strip()}")
                 return errors
@@ -266,6 +280,7 @@ def run_ensure_models(
     *,
     dry_run: bool = False,
     target_node: str | None = None,
+    download_timeout: int = 7200,
 ) -> bool:
     tasks = resolve_model_tasks(config, target_node=target_node)
 
@@ -290,7 +305,10 @@ def run_ensure_models(
         if handler is None:
             print(f"  Source type '{task.source_type}' not yet implemented (skipping)")
             continue
-        errors = handler(task, config, dry_run=dry_run)
+        kwargs: dict = {"dry_run": dry_run}
+        if task.source_type in ("huggingface", "convert", "pip"):
+            kwargs["download_timeout"] = download_timeout
+        errors = handler(task, config, **kwargs)
         if errors:
             all_ok = False
             for err in errors:
