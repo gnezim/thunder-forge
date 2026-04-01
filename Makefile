@@ -3,6 +3,7 @@ COMPOSE = docker compose -f docker/docker-compose.yml --env-file .env
 help:
 	@echo "Usage: make <target>"
 	@echo ""
+	@echo "  sync            Update local uv environment"
 	@echo "  up              Build and start all services"
 	@echo "  down            Stop all services"
 	@echo "  restart         Stop and restart all services"
@@ -14,13 +15,16 @@ help:
 	@echo "  check           Verify gateway setup and service health"
 	@echo "  check-docker    Test Docker network connectivity to PyPI"
 
-up:
+sync:
+	uv sync --upgrade
+
+up: sync
 	$(COMPOSE) up -d --build
 
 down:
 	$(COMPOSE) down
 
-restart:
+restart: sync
 	$(COMPOSE) down && $(COMPOSE) up -d --build
 
 ps:
@@ -50,5 +54,5 @@ check-docker:
 	@docker run --rm python:3.12-slim pip install --dry-run --timeout 30 hatchling 2>&1 | tail -5
 	@echo "==> Done. If DNS or HTTPS failed, check Docker DNS config (daemon.json) or firewall/VPN settings."
 
-.PHONY: help up down restart ps logs config setup-gateway setup-node check check-docker
+.PHONY: help sync up down restart ps logs config setup-gateway setup-node check check-docker
 .DEFAULT_GOAL := help
