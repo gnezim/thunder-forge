@@ -14,6 +14,7 @@ from thunder_admin.checks import run_all_checks
 from thunder_admin.config import jsonb_to_yaml
 from thunder_admin.deploy import (
     check_gateway_lock_alive,
+    clear_gateway_lock,
     kill_gateway_deploy,
     read_gateway_lock,
     start_deploy,
@@ -134,31 +135,37 @@ def render(user: dict):
 
         # Cancel button
         lock = read_gateway_lock()
-        if lock:
-            lock_status = check_gateway_lock_alive(lock)
-            pid = lock.get("PID")
-            if lock_status == "alive" and pid:
-                if st.button("Cancel Deploy", type="secondary"):
-                    if kill_gateway_deploy(pid):
-                        db.update_deploy(
-                            running["id"],
-                            status="cancelled",
-                            finished_at=datetime.now(UTC),
-                        )
-                        st.warning("Deploy cancelled")
-                        st.rerun()
-                    else:
-                        st.error("Failed to cancel deploy")
-            elif lock_status == "stale" and pid:
-                st.warning(f"Deploy process (PID {pid}) appears stuck. Force cancel?")
-                if st.button("Force Cancel"):
-                    if kill_gateway_deploy(str(pid)):
-                        db.update_deploy(
-                            running["id"],
-                            status="cancelled",
-                            finished_at=datetime.now(UTC),
-                        )
-                        st.rerun()
+        lock_status = check_gateway_lock_alive(lock) if lock else "dead"
+        pid = lock.get("PID") if lock else None
+
+        if lock_status == "alive" and pid:
+            if st.button("Cancel Deploy", type="secondary"):
+                if kill_gateway_deploy(pid):
+                    db.update_deploy(
+                        running["id"],
+                        status="cancelled",
+                        finished_at=datetime.now(UTC),
+                    )
+                    st.warning("Deploy cancelled")
+                    st.rerun()
+                else:
+                    st.error("Failed to cancel deploy")
+        elif lock_status == "stale" and pid:
+            st.warning(f"Deploy process (PID {pid}) appears stuck. Force cancel?")
+            if st.button("Force Cancel"):
+                if kill_gateway_deploy(str(pid)):
+                    db.update_deploy(
+                        running["id"],
+                        status="cancelled",
+                        finished_at=datetime.now(UTC),
+                    )
+                    st.rerun()
+        else:
+            st.warning("Deploy process is no longer running.")
+            if st.button("Clear Stuck Deploy", type="secondary"):
+                clear_gateway_lock()
+                db.update_deploy(running["id"], status="failed", finished_at=datetime.now(UTC))
+                st.rerun()
     else:
         if st.button("Deploy", type="primary"):
             deploy_id, error = start_deploy(current["id"], user["id"], current_yaml)

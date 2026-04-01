@@ -99,6 +99,11 @@ def check_gateway_lock_alive(lock: dict) -> str:
     return "alive"
 
 
+def clear_gateway_lock() -> None:
+    """Remove the gateway deploy lock file."""
+    ssh_exec("rm -f /tmp/thunder-forge-deploy.lock", timeout=10)
+
+
 def kill_gateway_deploy(pid: str) -> bool:
     """Kill a running deploy process on the gateway. Returns success."""
     exit_code, _ = ssh_exec(f"kill {pid} 2>/dev/null", timeout=10)
