@@ -81,8 +81,26 @@ def resolve_model_tasks(
 def _check_hf_cached(
     user: str, ip: str, repo: str, *, hf_cache: str = DEFAULT_HF_CACHE, shell: str | None = None
 ) -> bool:
+    """Return True only if the HF cache has a valid, complete-enough snapshot.
+
+    Checks:
+    1. refs/main exists and is non-empty (revision pointer)
+    2. snapshots/<ref>/ exists (the commit snapshot directory is present)
+    3. At least one blob file exists (some model weights were actually transferred)
+
+    A partial rsync leaves the snapshots/ dir but may be missing refs/main
+    or the commit-specific snapshot subdir, causing mlx_lm to fail with
+    LocalEntryNotFoundError even when HF_HUB_OFFLINE=1.
+    """
     hf_path = repo.replace("/", "--")
-    result = ssh_run(user, ip, f"test -d {hf_cache}/models--{hf_path}/snapshots", shell=shell)
+    base = f"{hf_cache}/models--{hf_path}"
+    check_cmd = (
+        f'ref=$(cat {base}/refs/main 2>/dev/null) && '
+        f'[ -n "$ref" ] && '
+        f'test -d {base}/snapshots/"$ref" && '
+        f'[ "$(ls {base}/blobs/ 2>/dev/null | wc -l)" -gt 0 ]'
+    )
+    result = ssh_run(user, ip, check_cmd, shell=shell)
     return result.returncode == 0
 
 
