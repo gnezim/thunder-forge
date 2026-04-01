@@ -129,7 +129,7 @@ def ensure_huggingface(
             f"{HF_CACHE}/models--{hf_cache_path}/ "
             f"{node.user}@{node.ip}:{DEFAULT_HF_CACHE}/models--{hf_cache_path}/"
         )
-        rsync_result = ssh_run(gw.user, gw.ip, rsync_cmd, timeout=3600, stream=True, shell=gw.shell)
+        rsync_result = ssh_run(gw.user, gw.ip, rsync_cmd, timeout=download_timeout, stream=True, shell=gw.shell)
         if rsync_result.returncode != 0:
             return f"Rsync to {node_name} failed: {(rsync_result.stderr or '').strip()}"
         return None
