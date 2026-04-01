@@ -98,7 +98,8 @@ def _check_hf_cached(
         f'ref=$(cat {base}/refs/main 2>/dev/null) && '
         f'[ -n "$ref" ] && '
         f'test -d {base}/snapshots/"$ref" && '
-        f'[ "$(ls {base}/blobs/ 2>/dev/null | wc -l)" -gt 0 ]'
+        f'[ "$(ls {base}/blobs/ 2>/dev/null | wc -l)" -gt 0 ] && '
+        f'[ "$(ls {base}/blobs/*.incomplete 2>/dev/null | wc -l)" -eq 0 ]'
     )
     result = ssh_run(user, ip, check_cmd, shell=shell)
     return result.returncode == 0
