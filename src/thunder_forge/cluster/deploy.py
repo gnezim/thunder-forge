@@ -355,6 +355,19 @@ def _generate_vector_plist(home: str, homebrew_prefix: str | None = None) -> str
     return xml_declaration + doctype + body + "\n"
 
 
+def _fetch_err_log(node: Node, port: int, lines: int = 30) -> str:
+    """Fetch the last N lines of the mlx-lm error log for a port. Returns empty string on failure."""
+    if node.home_dir is None:
+        return ""
+    result = ssh_run(
+        node.user, node.ip,
+        f"tail -{lines} {node.home_dir}/logs/mlx-lm-{port}.err 2>/dev/null",
+        timeout=10,
+        shell=node.shell,
+    )
+    return (result.stdout or "").strip()
+
+
 def _kill_process_by_name(node: Node, process_name: str) -> None:
     """Kill all processes matching process_name by name."""
     ssh_run(
@@ -530,6 +543,7 @@ def deploy_node(
 
         # Try kickstart first (works if service is already registered — just restarts it)
         result = ssh_run(node.user, node.ip, f"launchctl kickstart -kp {domain}/{label}", timeout=90, shell=node.shell)
+        launch_failed = False
         if result.returncode != 0:
             # Service not registered yet — bootout (cleanup) + sleep + bootstrap (register fresh)
             cmd = f"launchctl bootout {domain}/{label} 2>/dev/null; sleep 2; launchctl bootstrap {domain} {plist_path}"
@@ -541,6 +555,27 @@ def deploy_node(
                     f"  error: {err.strip()}\n"
                     f"  → Try: thunder-forge deploy --node {node_name}"
                 )
+                launch_failed = True
+
+        if not launch_failed:
+            # Verify launchd actually registered the service (catches silent failures and immediate crashes)
+            verify = ssh_run(node.user, node.ip, f"launchctl list {label} 2>&1", timeout=10, shell=node.shell)
+            if verify.returncode != 0:
+                log_tail = _fetch_err_log(node, slot.port)
+                msg = f"{node_name}: {label} not registered after deploy (launchctl list failed)"
+                if log_tail:
+                    msg += f"\n  --- mlx-lm-{slot.port}.err ---\n" + "\n".join(f"    {l}" for l in log_tail.splitlines())
+                errors.append(msg)
+            elif '"PID"' not in (verify.stdout or ""):
+                # Registered but no PID — crashed immediately, launchd may retry
+                last_exit = next(
+                    (l.strip() for l in (verify.stdout or "").splitlines() if "LastExitStatus" in l), ""
+                )
+                log_tail = _fetch_err_log(node, slot.port)
+                msg = f"{node_name}: {label} crashed on startup ({last_exit or 'no PID'})"
+                if log_tail:
+                    msg += f"\n  --- mlx-lm-{slot.port}.err ---\n" + "\n".join(f"    {l}" for l in log_tail.splitlines())
+                print(f"  Warning: {msg}")
 
         deployed_ports.add(slot.port)
 
@@ -901,6 +936,11 @@ def run_deploy(config: ClusterConfig, *, target_node: str | None = None, dry_run
                     print(f"  {status} — {node_name}:{slot.port} ({slot.model})")
                     if not healthy:
                         failed[node_name] = failed.get(node_name, "") + f" port {slot.port} unhealthy"
+                        log_tail = _fetch_err_log(config.nodes[node_name], slot.port)
+                        if log_tail:
+                            print(f"  --- {node_name}:mlx-lm-{slot.port}.err ---")
+                            for line in log_tail.splitlines():
+                                print(f"    {line}")
 
         # Summary
         total = len(deploy_nodes)
